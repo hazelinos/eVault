@@ -2,7 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:theme="@style/AppTheme"
-        android:label="eFootball AUTH Manager"
+        android:label="eVault"
+        android:icon="@drawable/evault_icon"
+        android:roundIcon="@drawable/evault_icon"
         android:allowBackup="true">
         <activity
             android:name=".MainActivity"
