@@ -42,7 +42,6 @@ public class MainActivity extends AppCompatActivity {
     private final ArrayList<Account> accounts = new ArrayList<>();
     private boolean workflowLaunchPending;
 
-    // Restored AUTO LOGIN state; behavior will be restored separately.
     private Handler autoLoginHandler = new Handler(Looper.getMainLooper());
     private boolean autoLoginRunning = false;
     private int autoLoginIndex = 0;
@@ -71,8 +70,8 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
         Button switchBtn = new Button(this); switchBtn.setText("SWITCH"); switchBtn.setOnClickListener(v -> switchSelected()); row.addView(switchBtn, weightLp());
-        Button autoBtn = new Button(this); autoBtn.setText("AUTO LOGIN"); row.addView(autoBtn, weightLp());
-        Button stopBtn = new Button(this); stopBtn.setText("STOP"); row.addView(stopBtn, weightLp());
+        Button autoBtn = new Button(this); autoBtn.setText("AUTO LOGIN"); autoBtn.setOnClickListener(v -> startAutoLogin()); row.addView(autoBtn, weightLp());
+        Button stopBtn = new Button(this); stopBtn.setText("STOP"); stopBtn.setOnClickListener(v -> stopAutoLogin()); row.addView(stopBtn, weightLp());
         root.addView(row, fullLp());
 
         autoLoginDelayEdit = new EditText(this);
@@ -96,9 +95,9 @@ public class MainActivity extends AppCompatActivity {
     private DocumentFile getTree(String key) { String s = prefs.getString(key, null); return s == null ? null : DocumentFile.fromTreeUri(this, Uri.parse(s)); }
     private void loadAccounts() { accounts.clear(); DocumentFile lib = getTree(KEY_LIBRARY); if (lib != null && lib.isDirectory()) for (DocumentFile d : lib.listFiles()) { if (!d.isDirectory()) continue; DocumentFile auth = d.findFile(AUTH_FILE); if (auth != null && auth.isFile()) accounts.add(new Account(nameOf(d), auth)); } Collections.sort(accounts, Comparator.comparing(a -> a.name.toLowerCase())); ArrayList<String> names = new ArrayList<>(); for (Account a : accounts) names.add(a.name); accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names)); accountsText.setText("Akun ditemukan: " + accounts.size()); }
     private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }
-    private void switchSelected() { clearWorkflow(); if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; } int pos = accountSpinner.getSelectedItemPosition(); if (pos >= 0 && pos < accounts.size() && copyAuth(accounts.get(pos))) launchGame(); }
-    private void deleteCurrentAuth() { clearWorkflow(); DocumentFile target = getTree(KEY_TARGET); if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; } DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; } new android.app.AlertDialog.Builder(this).setTitle("Hapus AUTH Saat Ini").setMessage("Hapus file AUTH yang sedang terpasang di target?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d, w) -> updateStatus(auth.delete() ? "✓ AUTH saat ini dihapus." : "Gagal menghapus AUTH. Periksa izin folder.")).show(); }
-    private void deleteData() { clearWorkflow(); DocumentFile target = getTree(KEY_TARGET); if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; } DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; } new android.app.AlertDialog.Builder(this).setTitle("Hapus Data").setMessage("Hapus AUTH saat ini dan masuk eFootball?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d, w) -> { if (!auth.delete()) { updateStatus("Gagal menghapus AUTH. Periksa izin folder."); return; } setMode(MODE_DELETE_DATA); if (launchGame()) workflowLaunchPending = true; else clearWorkflow(); }).show(); }
+    private void switchSelected() { stopAutoLogin(); clearWorkflow(); if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; } int pos = accountSpinner.getSelectedItemPosition(); if (pos >= 0 && pos < accounts.size() && copyAuth(accounts.get(pos))) launchGame(); }
+    private void deleteCurrentAuth() { stopAutoLogin(); clearWorkflow(); DocumentFile target = getTree(KEY_TARGET); if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; } DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; } new android.app.AlertDialog.Builder(this).setTitle("Hapus AUTH Saat Ini").setMessage("Hapus file AUTH yang sedang terpasang di target?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d, w) -> updateStatus(auth.delete() ? "✓ AUTH saat ini dihapus." : "Gagal menghapus AUTH. Periksa izin folder.")).show(); }
+    private void deleteData() { stopAutoLogin(); clearWorkflow(); DocumentFile target = getTree(KEY_TARGET); if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; } DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; } new android.app.AlertDialog.Builder(this).setTitle("Hapus Data").setMessage("Hapus AUTH saat ini dan masuk eFootball?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d, w) -> { if (!auth.delete()) { updateStatus("Gagal menghapus AUTH. Periksa izin folder."); return; } setMode(MODE_DELETE_DATA); if (launchGame()) workflowLaunchPending = true; else clearWorkflow(); }).show(); }
     private void showNewAuthDialog() { DocumentFile target = getTree(KEY_TARGET); DocumentFile auth = target == null ? null : target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH baru di Target."); return; } new android.app.AlertDialog.Builder(this).setTitle("AUTH baru terdeteksi").setMessage("Pilih tindakan untuk AUTH yang baru dibuat.").setNegativeButton("BATAL", (d, w) -> clearWorkflow()).setNeutralButton("HAPUS", (d, w) -> { if (auth.delete()) { updateStatus("AUTH dihapus. Membuka eFootball lagi..."); if (launchGame()) workflowLaunchPending = true; else clearWorkflow(); } else updateStatus("Gagal menghapus AUTH."); }).setPositiveButton("SIMPAN", (d, w) -> showSaveAuthDialog()).show(); }
     private void showSaveAuthDialog() { final EditText input = new EditText(this); input.setSingleLine(true); input.setHint("Nama file / folder"); new android.app.AlertDialog.Builder(this).setTitle("Simpan AUTH").setMessage("Nama file:").setView(input).setNegativeButton("BATAL", null).setPositiveButton("SIMPAN", (d, w) -> saveAuthWithName(input.getText().toString().trim())).show(); }
     private void saveAuthWithName(String name) { if (name.isEmpty()) { updateStatus("Nama tidak boleh kosong."); showSaveAuthDialog(); return; } DocumentFile lib = getTree(KEY_LIBRARY), target = getTree(KEY_TARGET); if (!validDir(lib)) { updateStatus("Pilih AUTH Library terlebih dahulu."); return; } DocumentFile auth = target == null ? null : target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("AUTH tidak ditemukan di Target."); return; } if (lib.findFile(name) != null) { updateStatus("Nama folder sudah digunakan: " + name); showSaveAuthDialog(); return; } DocumentFile folder = lib.createDirectory(name); if (folder == null) { updateStatus("Gagal membuat folder akun."); return; } if (copyFile(auth, folder, AUTH_FILE)) { clearWorkflow(); loadAccounts(); updateStatus("✓ AUTH disimpan: " + name); } else { folder.delete(); updateStatus("Gagal menyimpan AUTH."); } }
@@ -128,5 +127,48 @@ public class MainActivity extends AppCompatActivity {
     private void clearWorkflow() { workflowLaunchPending = false; prefs.edit().putString(KEY_MODE, MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).apply(); }
     private List<String> split(String value) { if (value == null || value.isEmpty()) return Collections.emptyList(); return Arrays.asList(value.split("\\|", -1)); }
     private void updateStatus(String s) { if (status != null) status.setText(s); }
+
+    private void startAutoLogin() {
+        if (accounts.isEmpty()) { updateStatus("Library kosong."); return; }
+        if (autoLoginRunning) return;
+        clearWorkflow();
+        autoLoginRunning = true;
+        autoLoginIndex = 0;
+        runNextAutoLogin();
+    }
+
+    private void runNextAutoLogin() {
+        if (!autoLoginRunning || autoLoginIndex >= accounts.size()) {
+            autoLoginRunning = false;
+            updateStatus("✓ AUTO LOGIN selesai. Total: " + accounts.size());
+            return;
+        }
+        Account account = accounts.get(autoLoginIndex);
+        updateStatus("AUTO LOGIN [" + (autoLoginIndex + 1) + "/" + accounts.size() + "]: " + account.name);
+        if (!copyAuth(account)) { autoLoginRunning = false; return; }
+        launchGame();
+        autoLoginIndex++;
+        autoLoginHandler.postDelayed(this::runNextAutoLogin, getAutoLoginDelayMs());
+    }
+
+    private long getAutoLoginDelayMs() {
+        try {
+            int seconds = Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
+            return Math.max(2, seconds) * 1000L;
+        } catch (Exception e) {
+            return 10000L;
+        }
+    }
+
+    private void stopAutoLogin() {
+        autoLoginRunning = false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+    }
+
+    @Override protected void onDestroy() {
+        stopAutoLogin();
+        super.onDestroy();
+    }
+
     static class Account { final String name; final DocumentFile file; Account(String name, DocumentFile file) { this.name = name; this.file = file; } }
 }
