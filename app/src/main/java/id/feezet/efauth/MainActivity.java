@@ -42,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
     private final ArrayList<Account> accounts = new ArrayList<>();
     private boolean workflowLaunchPending;
 
-    // Restored AUTO LOGIN state; behavior/UI will be restored in separate small commits.
+    // Restored AUTO LOGIN state; behavior will be restored separately.
     private Handler autoLoginHandler = new Handler(Looper.getMainLooper());
     private boolean autoLoginRunning = false;
     private int autoLoginIndex = 0;
@@ -68,9 +68,20 @@ public class MainActivity extends AppCompatActivity {
         Button target = new Button(this); target.setText("PILIH FOLDER AUTH EFOOTBALL"); target.setOnClickListener(v -> chooseTree(pickTarget)); root.addView(target, fullLp());
         accountsText = new TextView(this); accountsText.setText("Akun ditemukan: 0"); accountsText.setPadding(0, 18, 0, 8); root.addView(accountsText, fullLp());
         accountSpinner = new Spinner(this); root.addView(accountSpinner, fullLp());
+
         LinearLayout row = new LinearLayout(this); row.setOrientation(LinearLayout.HORIZONTAL);
         Button switchBtn = new Button(this); switchBtn.setText("SWITCH"); switchBtn.setOnClickListener(v -> switchSelected()); row.addView(switchBtn, weightLp());
-        Button deleteDataBtn = new Button(this); deleteDataBtn.setText("HAPUS DATA"); deleteDataBtn.setOnClickListener(v -> deleteData()); row.addView(deleteDataBtn, weightLp()); root.addView(row, fullLp());
+        Button autoBtn = new Button(this); autoBtn.setText("AUTO LOGIN"); row.addView(autoBtn, weightLp());
+        Button stopBtn = new Button(this); stopBtn.setText("STOP"); row.addView(stopBtn, weightLp());
+        root.addView(row, fullLp());
+
+        autoLoginDelayEdit = new EditText(this);
+        autoLoginDelayEdit.setInputType(2);
+        autoLoginDelayEdit.setSingleLine(true);
+        autoLoginDelayEdit.setText("10");
+        autoLoginDelayEdit.setHint("Delay AUTO LOGIN (detik)");
+        root.addView(autoLoginDelayEdit, fullLp());
+
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
         Button deleteAuthBtn = new Button(this); deleteAuthBtn.setText("HAPUS AUTH SAAT INI"); deleteAuthBtn.setOnClickListener(v -> deleteCurrentAuth()); row2.addView(deleteAuthBtn, weightLp());
         Button createBtn = new Button(this); createBtn.setText("BUAT AKUN BARU"); createBtn.setOnClickListener(v -> showCreateDialog()); row2.addView(createBtn, weightLp()); root.addView(row2, fullLp());
