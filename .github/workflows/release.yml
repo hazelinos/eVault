@@ -63,14 +63,14 @@ jobs:
           open(p,'w').write(s)
           PY
 
-      - name: Build APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Build installable APK
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Locate APK
         id: apk
         shell: bash
         run: |
-          apk=$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n1)
+          apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           if [ -z "$apk" ]; then
             echo 'No APK found' >&2
             find app/build/outputs -type f -maxdepth 5 -print >&2 || true
@@ -82,7 +82,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v${{ steps.version.outputs.version_name }}
+          name: eVault-v${{ steps.version.outputs.version_name }}-installable
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
 
