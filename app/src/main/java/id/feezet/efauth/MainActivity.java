@@ -4,6 +4,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.widget.*;
 import androidx.activity.result.ActivityResultLauncher;
@@ -39,6 +41,12 @@ public class MainActivity extends AppCompatActivity {
     private Spinner accountSpinner;
     private final ArrayList<Account> accounts = new ArrayList<>();
     private boolean workflowLaunchPending;
+
+    // Restored AUTO LOGIN state; behavior/UI will be restored in separate small commits.
+    private Handler autoLoginHandler = new Handler(Looper.getMainLooper());
+    private boolean autoLoginRunning = false;
+    private int autoLoginIndex = 0;
+    private EditText autoLoginDelayEdit;
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
         if (r.getResultCode() == RESULT_OK && r.getData() != null) { saveTree(KEY_LIBRARY, r.getData().getData()); loadAccounts(); }
