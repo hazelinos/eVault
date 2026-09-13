@@ -84,7 +84,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
         Button deleteAuthBtn = new Button(this); deleteAuthBtn.setText("HAPUS AUTH SAAT INI"); deleteAuthBtn.setOnClickListener(v -> deleteCurrentAuth()); row2.addView(deleteAuthBtn, weightLp());
         Button createBtn = new Button(this); createBtn.setText("BUAT AKUN BARU"); createBtn.setOnClickListener(v -> showCreateDialog()); row2.addView(createBtn, weightLp()); root.addView(row2, fullLp());
-        Button enterBtn = new Button(this); enterBtn.setText("MASUK EFOOTBALL"); enterBtn.setOnClickListener(v -> { clearWorkflow(); launchGame(); }); LinearLayout.LayoutParams enterLp = fullLp(); enterLp.topMargin = 14; root.addView(enterBtn, enterLp);
+        Button enterBtn = new Button(this); enterBtn.setText("MASUK EFOOTBALL"); enterBtn.setOnClickListener(v -> { stopAutoLogin(); clearWorkflow(); launchGame(); }); LinearLayout.LayoutParams enterLp = fullLp(); enterLp.topMargin = 14; root.addView(enterBtn, enterLp);
         status = new TextView(this); status.setText("Siap."); status.setPadding(0, 18, 0, 0); root.addView(status, fullLp());
         ScrollView scroll = new ScrollView(this); scroll.addView(root); setContentView(scroll);
     }
