@@ -22,6 +22,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.documentfile.provider.DocumentFile;
 
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -201,14 +202,14 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout.LayoutParams weightLp() { return new LinearLayout.LayoutParams(0, -2, 1f); }
 
     private void chooseLibrary() {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Uri initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AEFB");
-            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
+        File dir = new File("/storage/emulated/0/EFB");
+        if (!dir.isDirectory()) {
+            updateStatus("Folder /storage/emulated/0/EFB tidak ditemukan.");
+            return;
         }
-        pickLibrary.launch(i);
+        prefs.edit().putString(KEY_LIBRARY, Uri.fromFile(dir).toString()).apply();
+        loadAccounts();
+        updateStatus("✓ AUTH Library EFB terhubung.");
     }
 
     private void chooseTree(ActivityResultLauncher<Intent> launcher) {
@@ -228,7 +229,13 @@ public class MainActivity extends AppCompatActivity {
 
     private DocumentFile getTree(String key) {
         String s = prefs.getString(key, null);
-        return s == null ? null : DocumentFile.fromTreeUri(this, Uri.parse(s));
+        if (s == null) return null;
+        Uri uri = Uri.parse(s);
+        if ("file".equals(uri.getScheme())) {
+            String path = uri.getPath();
+            return path == null ? null : DocumentFile.fromFile(new File(path));
+        }
+        return DocumentFile.fromTreeUri(this, uri);
     }
 
     private void loadAccounts() {
