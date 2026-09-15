@@ -1,25 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Teal accent -->
-    <color name="teal">#146466</color>
-    <color name="tealBright">#1B9296</color>
-    <color name="tealDark">#0E4B4C</color>
+    <!-- Retro color palette -->
+    <color name="retroOrange">#FFC567</color>
+    <color name="retroPink">#FB7DA8</color>
+    <color name="retroRed">#FD5A46</color>
+    <color name="retroPurple">#552CB7</color>
+    <color name="retroGreen">#00995E</color>
+    <color name="retroBlue">#058CD7</color>
 
-    <!-- Dark surfaces -->
-    <color name="bgBase">#0B1013</color>
-    <color name="surface">#141C20</color>
-    <color name="surfaceElevated">#1C262B</color>
-    <color name="divider">#243036</color>
+    <!-- Primary colors for UI -->
+    <color name="primary">#058CD7</color>
+    <color name="primaryDark">#046BA8</color>
+    <color name="accent">#FFC567</color>
+    
+    <!-- Dark surfaces (keep dark for contrast) -->
+    <color name="bgBase">#1A1A2E</color>
+    <color name="surface">#16213E</color>
+    <color name="surfaceElevated">#0F3460</color>
+    <color name="divider">#2A3A5A</color>
 
     <!-- Text -->
-    <color name="textPrimary">#F2F5F6</color>
-    <color name="textSecondary">#9BAAB0</color>
+    <color name="textPrimary">#F8F9FA</color>
+    <color name="textSecondary">#B8C5D6</color>
 
     <!-- Button states -->
-    <color name="buttonBg">#1C262B</color>
-    <color name="buttonBgPressed">#243036</color>
-    <color name="dangerBg">#3A1E20</color>
-    <color name="dangerText">#FF6B6B</color>
+    <color name="buttonBg">#0F3460</color>
+    <color name="dangerBg">#FD5A46</color>
+    <color name="dangerText">#FFFFFF</color>
+    <color name="successBg">#00995E</color>
 
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>

@@ -2,8 +2,8 @@
 <resources>
     <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:colorAccent">@color/tealBright</item>
-        <item name="android:colorPrimary">@color/teal</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/primary</item>
         <item name="android:colorPrimaryDark">@color/bgBase</item>
         <item name="android:windowBackground">@color/bgBase</item>
         <item name="android:statusBarColor">@color/bgBase</item>

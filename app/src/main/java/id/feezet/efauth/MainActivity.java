@@ -119,7 +119,7 @@ public class MainActivity extends AppCompatActivity {
         TextView subtitle = new TextView(this);
         subtitle.setText("eFootball AUTH Manager");
         subtitle.setTextSize(13);
-        subtitle.setTextColor(color(R.color.teal));
+        subtitle.setTextColor(color(R.color.accent));
         subtitle.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams subLp = fullLp();
         subLp.bottomMargin = dp(20);
