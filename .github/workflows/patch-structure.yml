@@ -1,0 +1,49 @@
+name: Patch Structure
+on:
+  push:
+    paths: [.github/workflows/patch-structure.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'chore: apply category structure')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Patch MainActivity
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('app/src/main/java/id/feezet/efauth/MainActivity.java')
+          s=p.read_text()
+          s=s.replace('private static final String KEY_CREATE_COUNT = "create_count";', 'private static final String KEY_CREATE_COUNT = "create_count";\n    private static final String KEY_CREATE_CATEGORY = "create_category";')
+          old='''    private void loadAccounts() {\n        accounts.clear();\n        DocumentFile lib = getTree(KEY_LIBRARY);\n        if (validDir(lib)) collectAccounts(lib);\n        Collections.sort(accounts, Comparator.comparing(a -> a.name.toLowerCase()));\n        ArrayList<String> names = new ArrayList<>(); for (Account a : accounts) names.add(a.name);\n        accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));\n        accountsText.setText("Akun ditemukan: " + accounts.size());\n    }\n\n    private void collectAccounts(DocumentFile dir) {\n        for (DocumentFile child : dir.listFiles()) {\n            if (!child.isDirectory()) continue;\n            DocumentFile auth = child.findFile(AUTH_FILE);\n            if (auth != null && auth.isFile()) accounts.add(new Account(nameOf(child), auth));\n            else collectAccounts(child);\n        }\n    }\n\n    private DocumentFile accountRoot(DocumentFile library) {\n        if (!validDir(library)) return null;\n        DocumentFile akun = library.findFile("AKUN");\n        return validDir(akun) ? akun : library;\n    }\n\n    private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }'''
+          new='''    private void loadAccounts() {\n        accounts.clear();\n        DocumentFile lib = getTree(KEY_LIBRARY);\n        if (validDir(lib)) {\n            for (DocumentFile category : lib.listFiles()) {\n                if (category.isDirectory()) collectAccounts(category, nameOf(category));\n            }\n        }\n        Collections.sort(accounts, Comparator.comparing(a -> (a.category + "/" + a.name).toLowerCase()));\n        ArrayList<String> names = new ArrayList<>();\n        for (Account a : accounts) names.add(a.category + " / " + a.name);\n        accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));\n        accountsText.setText("Akun ditemukan: " + accounts.size());\n    }\n\n    private void collectAccounts(DocumentFile categoryRoot, String categoryName) {\n        for (DocumentFile child : categoryRoot.listFiles()) {\n            if (!child.isDirectory()) continue;\n            DocumentFile auth = child.findFile(AUTH_FILE);\n            if (auth != null && auth.isFile()) accounts.add(new Account(categoryName, nameOf(child), auth));\n            else collectAccounts(child, categoryName);\n        }\n    }\n\n    private DocumentFile accountRoot(DocumentFile library) {\n        return validDir(library) ? library : null;\n    }\n\n    private DocumentFile categoryRoot(DocumentFile library, String categoryName) {\n        if (!validDir(library) || categoryName == null || categoryName.trim().isEmpty()) return null;\n        DocumentFile category = library.findFile(categoryName);\n        return validDir(category) ? category : library.createDirectory(categoryName);\n    }\n\n    private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }'''
+          assert old in s
+          s=s.replace(old,new)
+          old='''                    DocumentFile lib=getTree(KEY_LIBRARY), target=getTree(KEY_TARGET), root=accountRoot(lib);\n                    if(!validDir(root)){updateStatus("Folder AKUN tidak tersedia.");showDeleteDataSaveDialog();return;}\n                    DocumentFile auth=target==null?null:target.findFile(AUTH_FILE); if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}\n                    if(root.findFile(name)!=null){updateStatus("Nama folder sudah digunakan: "+name);showDeleteDataSaveDialog();return;}\n                    DocumentFile folder=root.createDirectory(name); if(folder==null){updateStatus("Gagal membuat folder akun.");return;}\n                    if(copyFile(auth,folder,AUTH_FILE)){clearWorkflow();loadAccounts();updateStatus("✓ AUTH disimpan: "+name);}else{folder.delete();updateStatus("Gagal menyimpan AUTH.");}'''
+          new='''                    DocumentFile lib=getTree(KEY_LIBRARY), target=getTree(KEY_TARGET);\n                    if(!validDir(lib)){updateStatus("AUTH Library belum dipilih.");showDeleteDataSaveDialog();return;}\n                    DocumentFile auth=target==null?null:target.findFile(AUTH_FILE); if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}\n                    showSaveCategoryDialog(lib, name, auth);'''
+          assert old in s
+          s=s.replace(old,new)
+          old='''    private void showCreateDialog() {'''
+          new='''    private void showSaveCategoryDialog(DocumentFile library, String accountName, DocumentFile auth) {\n        String[] defaults = {"AKUN", "Asset", "EPIC NEW"};\n        new AlertDialog.Builder(this).setTitle("Kategori akun").setItems(defaults, (d, which) -> {\n            String categoryName = defaults[which];\n            DocumentFile category = categoryRoot(library, categoryName);\n            if (!validDir(category)) { updateStatus("Gagal membuka kategori: " + categoryName); return; }\n            if (category.findFile(accountName) != null) { updateStatus("Nama folder sudah digunakan: " + accountName); return; }\n            DocumentFile folder = category.createDirectory(accountName);\n            if (folder == null) { updateStatus("Gagal membuat folder akun."); return; }\n            if (copyFile(auth, folder, AUTH_FILE)) { clearWorkflow(); loadAccounts(); updateStatus("✓ AUTH disimpan: " + categoryName + " / " + accountName); }\n            else { folder.delete(); updateStatus("Gagal menyimpan AUTH."); }\n        }).setNegativeButton("BATAL", null).show();\n    }\n\n    private void showCreateDialog() {'''
+          assert old in s
+          s=s.replace(old,new)
+          old='''    private void startCreateWorkflow(DocumentFile root,int count) {\n        root=accountRoot(root); if(!validDir(root)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}\n        DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}\n        DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(root,count);\n    }'''
+          new='''    private void startCreateWorkflow(DocumentFile root,int count) {\n        root=accountRoot(root); if(!validDir(root)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}\n        DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}\n        new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(new String[]{"AKUN","Asset","EPIC NEW"}, (d,which) -> {\n            String category = new String[]{"AKUN","Asset","EPIC NEW"}[which];\n            DocumentFile cat = categoryRoot(root, category);\n            if(!validDir(cat)){updateStatus("Gagal membuka kategori: "+category);return;}\n            prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();\n            DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(cat,count);\n        }).setNegativeButton("BATAL",null).show();\n    }'''
+          assert old in s
+          s=s.replace(old,new)
+          s=s.replace('private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"" )).size();clearWorkflow();', 'private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"" )).size();clearWorkflow();') if False else s
+          s=s.replace('remove(KEY_CREATE_COUNT).apply();', 'remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).apply();')
+          s=s.replace('static class Account{final String name;final DocumentFile file;Account(String name,DocumentFile file){this.name=name;this.file=file;}}', 'static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}')
+          p.write_text(s)
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "hazelinos"
+          git config user.email "feezet1@gmail.com"
+          git add app/src/main/java/id/feezet/efauth/MainActivity.java .github/workflows/patch-structure.yml
+          git commit -m "chore: apply category structure" || exit 0
+          git push
