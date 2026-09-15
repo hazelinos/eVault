@@ -436,10 +436,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startCreateWorkflow(DocumentFile root,int count) {
-        root=accountRoot(root); if(!validDir(root)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}
-        DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
+        final DocumentFile accountRoot=accountRoot(root); if(!validDir(accountRoot)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}
+        final DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
         new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(DEFAULT_CATEGORIES,(d,which)->{
-            String category=DEFAULT_CATEGORIES[which]; DocumentFile categoryDir=categoryRoot(root,category);
+            String category=DEFAULT_CATEGORIES[which]; DocumentFile categoryDir=categoryRoot(accountRoot,category);
             if(!validDir(categoryDir)){updateStatus("Gagal membuka kategori: "+category);return;}
             prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();
             DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(categoryDir,count);
