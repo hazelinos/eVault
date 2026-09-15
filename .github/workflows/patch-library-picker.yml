@@ -1,0 +1,54 @@
+name: Patch Library Picker
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch library picker
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/id/feezet/efauth/MainActivity.java')
+          s = p.read_text()
+          old_import = 'import android.net.Uri;\n'
+          new_import = 'import android.net.Uri;\nimport android.os.Build;\nimport android.provider.DocumentsContract;\n'
+          old_button = 'library.setOnClickListener(v -> chooseTree(pickLibrary));'
+          new_button = 'library.setOnClickListener(v -> chooseLibrary());'
+          old_method = '''    private void chooseTree(ActivityResultLauncher<Intent> launcher) {\n        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);\n        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |\n                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);\n        launcher.launch(i);\n    }'''
+          new_method = '''    private void chooseLibrary() {\n        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);\n        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |\n                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);\n        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {\n            Uri initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AEFB");\n            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);\n        }\n        pickLibrary.launch(i);\n    }\n\n    private void chooseTree(ActivityResultLauncher<Intent> launcher) {\n        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);\n        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |\n                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);\n        launcher.launch(i);\n    }'''
+          changed = False
+          if old_import in s:
+              s = s.replace(old_import, new_import, 1); changed = True
+          if old_button in s:
+              s = s.replace(old_button, new_button, 1); changed = True
+          if old_method in s:
+              s = s.replace(old_method, new_method, 1); changed = True
+          p.write_text(s)
+          print('patched' if changed else 'already patched')
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git add app/src/main/java/id/feezet/efauth/MainActivity.java
+          git commit -m "fix: open library picker directly at EFB"
+          git push
