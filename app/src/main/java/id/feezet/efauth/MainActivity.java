@@ -4,6 +4,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
+import android.provider.DocumentsContract;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -115,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
 
         Button library = new Button(this);
         library.setText("PILIH AUTH LIBRARY");
-        library.setOnClickListener(v -> chooseTree(pickLibrary));
+        library.setOnClickListener(v -> chooseLibrary());
         root.addView(library, fullLp());
 
         Button target = new Button(this);
@@ -197,6 +199,17 @@ public class MainActivity extends AppCompatActivity {
 
     private LinearLayout.LayoutParams fullLp() { return new LinearLayout.LayoutParams(-1, -2); }
     private LinearLayout.LayoutParams weightLp() { return new LinearLayout.LayoutParams(0, -2, 1f); }
+
+    private void chooseLibrary() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Uri initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AEFB");
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
+        }
+        pickLibrary.launch(i);
+    }
 
     private void chooseTree(ActivityResultLauncher<Intent> launcher) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
