@@ -1,0 +1,93 @@
+name: Fix Direct EFB Library
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch eVault
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/src/main/java/id/feezet/efauth/MainActivity.java')
+          s = p.read_text()
+
+          s = s.replace('import java.io.InputStream;\nimport java.io.OutputStream;', 'import java.io.File;\nimport java.io.InputStream;\nimport java.io.OutputStream;')
+
+          old = '''    private void chooseLibrary() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Uri initial = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AEFB");
+            i.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initial);
+        }
+        pickLibrary.launch(i);
+    }
+'''
+          new = '''    private void chooseLibrary() {
+        File dir = new File("/storage/emulated/0/EFB");
+        if (!dir.isDirectory()) {
+            updateStatus("Folder /storage/emulated/0/EFB tidak ditemukan.");
+            return;
+        }
+        prefs.edit().putString(KEY_LIBRARY, Uri.fromFile(dir).toString()).apply();
+        loadAccounts();
+        updateStatus("✓ AUTH Library EFB terhubung.");
+    }
+'''
+          if old not in s:
+              raise SystemExit('chooseLibrary block not found')
+          s = s.replace(old, new)
+
+          old = '''    private DocumentFile getTree(String key) {
+        String s = prefs.getString(key, null);
+        return s == null ? null : DocumentFile.fromTreeUri(this, Uri.parse(s));
+    }
+'''
+          new = '''    private DocumentFile getTree(String key) {
+        String s = prefs.getString(key, null);
+        if (s == null) return null;
+        Uri uri = Uri.parse(s);
+        if ("file".equals(uri.getScheme())) {
+            String path = uri.getPath();
+            return path == null ? null : DocumentFile.fromFile(new File(path));
+        }
+        return DocumentFile.fromTreeUri(this, uri);
+    }
+'''
+          if old not in s:
+              raise SystemExit('getTree block not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+
+          g = Path('app/build.gradle.kts')
+          gs = g.read_text()
+          gs = gs.replace('versionCode = 5', 'versionCode = 6').replace('versionName = "1.1.3"', 'versionName = "1.1.4"')
+          g.write_text(gs)
+          PY
+
+          if git diff --quiet; then
+            echo "No changes needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/id/feezet/efauth/MainActivity.java app/build.gradle.kts
+          git commit -m "fix: use direct EFB library access"
+          git push
