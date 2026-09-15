@@ -19,6 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import androidx.core.content.ContextCompat;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
@@ -143,7 +144,7 @@ public class MainActivity extends AppCompatActivity {
         accountCard.addView(accountsText, spacedLp(dp(8)));
 
         accountSpinner = new Spinner(this);
-        accountSpinner.setBackground(getResources().getDrawable(R.drawable.input_bg));
+        accountSpinner.setBackground(ContextCompat.getDrawable(this, R.drawable.input_bg));
         accountSpinner.setPadding(dp(12), dp(10), dp(12), dp(10));
         accountCard.addView(accountSpinner, spacedLp(dp(12)));
 
@@ -214,12 +215,14 @@ public class MainActivity extends AppCompatActivity {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
     }
 
-    private int color(int resId) { return getResources().getColor(resId); }
+    private int color(int resId) { 
+        return ContextCompat.getColor(this, resId); 
+    }
 
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(getResources().getDrawable(R.drawable.card_bg));
+        c.setBackground(ContextCompat.getDrawable(this, R.drawable.card_bg));
         c.setPadding(dp(16), dp(14), dp(16), dp(16));
         return c;
     }
@@ -258,27 +261,27 @@ public class MainActivity extends AppCompatActivity {
 
     private Button primaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(getResources().getDrawable(R.drawable.btn_primary));
+        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_primary));
         b.setTextColor(color(R.color.white));
         return b;
     }
 
     private Button secondaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(getResources().getDrawable(R.drawable.btn_secondary));
+        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_secondary));
         b.setTextColor(color(R.color.textPrimary));
         return b;
     }
 
     private Button dangerButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(getResources().getDrawable(R.drawable.btn_danger));
+        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_danger));
         b.setTextColor(color(R.color.dangerText));
         return b;
     }
 
     private void styleInput(EditText e) {
-        e.setBackground(getResources().getDrawable(R.drawable.input_bg));
+        e.setBackground(ContextCompat.getDrawable(this, R.drawable.input_bg));
         e.setTextColor(color(R.color.textPrimary));
         e.setHintTextColor(color(R.color.textSecondary));
         e.setPadding(dp(12), dp(12), dp(12), dp(12));
