@@ -3,11 +3,15 @@ package id.feezet.efauth;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -100,42 +104,199 @@ public class MainActivity extends AppCompatActivity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(32, 56, 32, 28);
+        root.setBackgroundColor(color(R.color.bgBase));
+        root.setPadding(dp(20), dp(28), dp(20), dp(24));
 
+        // ---- Header ----
         TextView title = new TextView(this);
-        title.setText("eVault"); title.setTextSize(25); title.setGravity(Gravity.CENTER); title.setPadding(0, 0, 0, 22);
+        title.setText("eVault");
+        title.setTextSize(30);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(color(R.color.textPrimary));
         root.addView(title, fullLp());
 
-        Button library = new Button(this);
-        library.setText("PILIH AUTH LIBRARY"); library.setOnClickListener(v -> chooseLibrary()); root.addView(library, fullLp());
-        Button target = new Button(this);
-        target.setText("PILIH FOLDER AUTH EFOOTBALL"); target.setOnClickListener(v -> chooseTree(pickTarget)); root.addView(target, fullLp());
+        TextView subtitle = new TextView(this);
+        subtitle.setText("eFootball AUTH Manager");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(color(R.color.teal));
+        subtitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams subLp = fullLp();
+        subLp.bottomMargin = dp(20);
+        root.addView(subtitle, subLp);
 
-        accountsText = new TextView(this); accountsText.setText("Akun ditemukan: 0"); accountsText.setPadding(0, 18, 0, 8); root.addView(accountsText, fullLp());
-        accountSpinner = new Spinner(this); root.addView(accountSpinner, fullLp());
+        // ---- Card: Setup ----
+        LinearLayout setupCard = card();
+        setupCard.addView(sectionLabel("SETUP"));
+        Button library = secondaryButton("PILIH AUTH LIBRARY", v -> chooseLibrary());
+        setupCard.addView(library, spacedLp(dp(4)));
+        Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
+        setupCard.addView(target, spacedLp(dp(10)));
+        root.addView(setupCard, cardLp());
+
+        // ---- Card: Akun ----
+        LinearLayout accountCard = card();
+        accountCard.addView(sectionLabel("AKUN"));
+        accountsText = new TextView(this);
+        accountsText.setText("Akun ditemukan: 0");
+        accountsText.setTextColor(color(R.color.textSecondary));
+        accountsText.setTextSize(13);
+        accountCard.addView(accountsText, spacedLp(dp(8)));
+
+        accountSpinner = new Spinner(this);
+        accountSpinner.setBackground(getResources().getDrawable(R.drawable.input_bg));
+        accountSpinner.setPadding(dp(12), dp(10), dp(12), dp(10));
+        accountCard.addView(accountSpinner, spacedLp(dp(12)));
 
         LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
-        Button switchBtn = new Button(this); switchBtn.setText("SWITCH"); switchBtn.setOnClickListener(v -> switchSelected()); row1.addView(switchBtn, weightLp());
-        Button deleteDataBtn = new Button(this); deleteDataBtn.setText("HAPUS DATA"); deleteDataBtn.setOnClickListener(v -> showDeleteDataConfirmDialog()); row1.addView(deleteDataBtn, weightLp()); root.addView(row1, fullLp());
+        Button switchBtn = primaryButton("SWITCH", v -> switchSelected());
+        row1.addView(switchBtn, weightLp(dp(4), 0));
+        Button deleteDataBtn = dangerButton("HAPUS DATA", v -> showDeleteDataConfirmDialog());
+        row1.addView(deleteDataBtn, weightLp(dp(4), 1));
+        accountCard.addView(row1, spacedLp(0));
+        root.addView(accountCard, cardLp());
+
+        // ---- Card: Auto Login ----
+        LinearLayout autoCard = card();
+        autoCard.addView(sectionLabel("AUTO LOGIN"));
+        autoLoginDelayEdit = new EditText(this);
+        autoLoginDelayEdit.setInputType(2);
+        autoLoginDelayEdit.setSingleLine(true);
+        autoLoginDelayEdit.setText("10");
+        autoLoginDelayEdit.setHint("Delay (detik)");
+        styleInput(autoLoginDelayEdit);
+        autoCard.addView(autoLoginDelayEdit, spacedLp(dp(10)));
 
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button autoBtn = new Button(this); autoBtn.setText("AUTO LOGIN"); autoBtn.setOnClickListener(v -> startAutoLogin()); row2.addView(autoBtn, weightLp());
-        Button stopBtn = new Button(this); stopBtn.setText("STOP"); stopBtn.setOnClickListener(v -> stopAutoLogin()); row2.addView(stopBtn, weightLp()); root.addView(row2, fullLp());
+        Button autoBtn = primaryButton("MULAI", v -> startAutoLogin());
+        row2.addView(autoBtn, weightLp(dp(4), 0));
+        Button stopBtn = secondaryButton("STOP", v -> stopAutoLogin());
+        row2.addView(stopBtn, weightLp(dp(4), 1));
+        autoCard.addView(row2, spacedLp(0));
+        root.addView(autoCard, cardLp());
 
-        autoLoginDelayEdit = new EditText(this); autoLoginDelayEdit.setInputType(2); autoLoginDelayEdit.setSingleLine(true); autoLoginDelayEdit.setText("10"); autoLoginDelayEdit.setHint("Delay AUTO LOGIN (detik)"); root.addView(autoLoginDelayEdit, fullLp());
-
+        // ---- Card: Kelola ----
+        LinearLayout manageCard = card();
+        manageCard.addView(sectionLabel("KELOLA"));
         LinearLayout row3 = new LinearLayout(this); row3.setOrientation(LinearLayout.HORIZONTAL);
-        Button deleteAuthBtn = new Button(this); deleteAuthBtn.setText("HAPUS AUTH SAAT INI"); deleteAuthBtn.setOnClickListener(v -> deleteCurrentAuth()); row3.addView(deleteAuthBtn, weightLp());
-        Button createBtn = new Button(this); createBtn.setText("BUAT AKUN BARU"); createBtn.setOnClickListener(v -> showCreateDialog()); row3.addView(createBtn, weightLp()); root.addView(row3, fullLp());
+        Button deleteAuthBtn = dangerButton("HAPUS AUTH INI", v -> deleteCurrentAuth());
+        row3.addView(deleteAuthBtn, weightLp(dp(4), 0));
+        Button createBtn = secondaryButton("BUAT AKUN BARU", v -> showCreateDialog());
+        row3.addView(createBtn, weightLp(dp(4), 1));
+        manageCard.addView(row3, spacedLp(0));
+        root.addView(manageCard, cardLp());
 
-        Button enterBtn = new Button(this); enterBtn.setText("MASUK EFOOTBALL"); enterBtn.setOnClickListener(v -> { stopAutoLogin(); clearWorkflow(); launchGame(); });
-        LinearLayout.LayoutParams enterLp = fullLp(); enterLp.topMargin = 14; root.addView(enterBtn, enterLp);
-        status = new TextView(this); status.setText("Siap."); status.setPadding(0, 18, 0, 0); root.addView(status, fullLp());
-        ScrollView scroll = new ScrollView(this); scroll.addView(root); setContentView(scroll);
+        // ---- Enter game (big primary) ----
+        Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> { stopAutoLogin(); clearWorkflow(); launchGame(); });
+        enterBtn.setTextSize(15);
+        LinearLayout.LayoutParams enterLp = fullLp();
+        enterLp.topMargin = dp(6);
+        enterLp.height = dp(52);
+        root.addView(enterBtn, enterLp);
+
+        // ---- Status ----
+        status = new TextView(this);
+        status.setText("Siap.");
+        status.setTextColor(color(R.color.textSecondary));
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams statusLp = fullLp();
+        statusLp.topMargin = dp(16);
+        root.addView(status, statusLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(color(R.color.bgBase));
+        scroll.addView(root);
+        setContentView(scroll);
+    }
+
+    // ---------- UI helpers ----------
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+    }
+
+    private int color(int resId) { return getResources().getColor(resId); }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(getResources().getDrawable(R.drawable.card_bg));
+        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        return c;
+    }
+
+    private LinearLayout.LayoutParams cardLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = dp(14);
+        return lp;
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextSize(11);
+        tv.setLetterSpacing(0.12f);
+        tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setTextColor(color(R.color.textSecondary));
+        LinearLayout.LayoutParams lp = fullLp();
+        lp.bottomMargin = dp(10);
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    private Button baseButton(String text, View.OnClickListener listener) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(true);
+        b.setTextSize(13);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setStateListAnimator(null);
+        b.setMinHeight(dp(46));
+        b.setPadding(dp(12), dp(10), dp(12), dp(10));
+        b.setOnClickListener(listener);
+        return b;
+    }
+
+    private Button primaryButton(String text, View.OnClickListener l) {
+        Button b = baseButton(text, l);
+        b.setBackground(getResources().getDrawable(R.drawable.btn_primary));
+        b.setTextColor(color(R.color.white));
+        return b;
+    }
+
+    private Button secondaryButton(String text, View.OnClickListener l) {
+        Button b = baseButton(text, l);
+        b.setBackground(getResources().getDrawable(R.drawable.btn_secondary));
+        b.setTextColor(color(R.color.textPrimary));
+        return b;
+    }
+
+    private Button dangerButton(String text, View.OnClickListener l) {
+        Button b = baseButton(text, l);
+        b.setBackground(getResources().getDrawable(R.drawable.btn_danger));
+        b.setTextColor(color(R.color.dangerText));
+        return b;
+    }
+
+    private void styleInput(EditText e) {
+        e.setBackground(getResources().getDrawable(R.drawable.input_bg));
+        e.setTextColor(color(R.color.textPrimary));
+        e.setHintTextColor(color(R.color.textSecondary));
+        e.setPadding(dp(12), dp(12), dp(12), dp(12));
     }
 
     private LinearLayout.LayoutParams fullLp() { return new LinearLayout.LayoutParams(-1, -2); }
-    private LinearLayout.LayoutParams weightLp() { return new LinearLayout.LayoutParams(0, -2, 1f); }
+
+    private LinearLayout.LayoutParams spacedLp(int topMargin) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = topMargin;
+        return lp;
+    }
+
+    private LinearLayout.LayoutParams weightLp(int gap, int side) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        if (side == 0) lp.rightMargin = gap; else lp.leftMargin = gap;
+        return lp;
+    }
     private void chooseLibrary() { chooseTree(pickLibrary); }
 
     private void chooseTree(ActivityResultLauncher<Intent> launcher) {
