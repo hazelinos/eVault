@@ -1,0 +1,110 @@
+name: Maintenance Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/maintenance-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'chore: apply v1.1.5 fixes')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch project
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('app/src/main/java/id/feezet/efauth/MainActivity.java')
+          s = p.read_text()
+          s = s.replace('import android.os.Build;\n', '')
+          s = s.replace('import android.provider.DocumentsContract;\n', '')
+          s = s.replace('import java.io.File;\n', '')
+
+          old = '''    private void chooseLibrary() {\n        File dir = new File("/storage/emulated/0/EFB");\n        if (!dir.isDirectory()) {\n            updateStatus("Folder /storage/emulated/0/EFB tidak ditemukan.");\n            return;\n        }\n        prefs.edit().putString(KEY_LIBRARY, Uri.fromFile(dir).toString()).apply();\n        loadAccounts();\n        updateStatus("✓ AUTH Library EFB terhubung.");\n    }'''
+          new = '''    private void chooseLibrary() {\n        chooseTree(pickLibrary);\n    }'''
+          assert old in s
+          s = s.replace(old, new)
+
+          old = '''    private DocumentFile getTree(String key) {\n        String s = prefs.getString(key, null);\n        if (s == null) return null;\n        Uri uri = Uri.parse(s);\n        if ("file".equals(uri.getScheme())) {\n            String path = uri.getPath();\n            return path == null ? null : DocumentFile.fromFile(new File(path));\n        }\n        return DocumentFile.fromTreeUri(this, uri);\n    }'''
+          new = '''    private DocumentFile getTree(String key) {\n        String s = prefs.getString(key, null);\n        if (s == null) return null;\n        return DocumentFile.fromTreeUri(this, Uri.parse(s));\n    }'''
+          assert old in s
+          s = s.replace(old, new)
+
+          old = '''    private void loadAccounts() {\n        accounts.clear();\n        DocumentFile lib = getTree(KEY_LIBRARY);\n        if (lib != null && lib.isDirectory()) {\n            for (DocumentFile d : lib.listFiles()) {\n                if (!d.isDirectory()) continue;\n                DocumentFile auth = d.findFile(AUTH_FILE);\n                if (auth != null && auth.isFile()) accounts.add(new Account(nameOf(d), auth));\n            }\n        }\n        Collections.sort(accounts, Comparator.comparing(a -> a.name.toLowerCase()));\n        ArrayList<String> names = new ArrayList<>();\n        for (Account a : accounts) names.add(a.name);\n        accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));\n        accountsText.setText("Akun ditemukan: " + accounts.size());\n    }\n\n    private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }'''
+          new = '''    private void loadAccounts() {\n        accounts.clear();\n        DocumentFile lib = getTree(KEY_LIBRARY);\n        if (validDir(lib)) collectAccounts(lib);\n        Collections.sort(accounts, Comparator.comparing(a -> a.name.toLowerCase()));\n        ArrayList<String> names = new ArrayList<>();\n        for (Account a : accounts) names.add(a.name);\n        accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));\n        accountsText.setText("Akun ditemukan: " + accounts.size());\n    }\n\n    private void collectAccounts(DocumentFile dir) {\n        for (DocumentFile child : dir.listFiles()) {\n            if (!child.isDirectory()) continue;\n            DocumentFile auth = child.findFile(AUTH_FILE);\n            if (auth != null && auth.isFile()) accounts.add(new Account(nameOf(child), auth));\n            else collectAccounts(child);\n        }\n    }\n\n    private DocumentFile accountRoot(DocumentFile library) {\n        if (!validDir(library)) return null;\n        DocumentFile akun = library.findFile("AKUN");\n        return validDir(akun) ? akun : library;\n    }\n\n    private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }'''
+          assert old in s
+          s = s.replace(old, new)
+
+          old = '                    if (lib.findFile(name) != null) { updateStatus("Nama folder sudah digunakan: " + name); showDeleteDataSaveDialog(); return; }\n                    DocumentFile folder = lib.createDirectory(name);'
+          new = '                    DocumentFile accountRoot = accountRoot(lib);\n                    if (!validDir(accountRoot)) { updateStatus("Folder AKUN tidak tersedia."); showDeleteDataSaveDialog(); return; }\n                    if (accountRoot.findFile(name) != null) { updateStatus("Nama folder sudah digunakan: " + name); showDeleteDataSaveDialog(); return; }\n                    DocumentFile folder = accountRoot.createDirectory(name);'
+          assert old in s
+          s = s.replace(old, new)
+
+          old = '''    private void startCreateWorkflow(DocumentFile root, int count) {\n        if (!validDir(root) || count < 1 || count > 10) { updateStatus("Jumlah/folder penyimpanan tidak valid."); return; }\n        DocumentFile target = getTree(KEY_TARGET);'''
+          new = '''    private void startCreateWorkflow(DocumentFile root, int count) {\n        root = accountRoot(root);\n        if (!validDir(root) || count < 1 || count > 10) { updateStatus("Jumlah/folder penyimpanan tidak valid."); return; }\n        DocumentFile target = getTree(KEY_TARGET);'''
+          assert old in s
+          s = s.replace(old, new)
+
+          old = '                    DocumentFile root = getTree(KEY_LIBRARY);\n                    if (!validDir(root)) { updateStatus("Library penyimpanan tidak tersedia."); clearWorkflow(); return; }\n                    DocumentFile folder = root.findFile(currentAccountName);'
+          new = '                    DocumentFile root = accountRoot(getTree(KEY_LIBRARY));\n                    if (!validDir(root)) { updateStatus("Folder AKUN tidak tersedia."); clearWorkflow(); return; }\n                    DocumentFile folder = root.findFile(currentAccountName);'
+          assert old in s
+          s = s.replace(old, new)
+          p.write_text(s)
+
+          m = Path('app/src/main/AndroidManifest.xml')
+          ms = m.read_text()
+          ms = re.sub(r'\s*<uses-permission android:name="android\.permission\.(READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE)"[^>]*/>', '', ms)
+          old_launcher = '''        <activity\n            android:name=".StoragePermissionActivity"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.intent.action.MAIN" />\n                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n        </activity>\n        <activity\n            android:name=".MainActivity"\n            android:exported="false" />'''
+          new_launcher = '''        <activity\n            android:name=".MainActivity"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.intent.action.MAIN" />\n                <category android:name="android.intent.category.LAUNCHER" />\n            </intent-filter>\n        </activity>'''
+          assert old_launcher in ms
+          ms = ms.replace(old_launcher, new_launcher)
+          m.write_text(ms)
+          Path('app/src/main/java/id/feezet/efauth/StoragePermissionActivity.java').unlink()
+
+          g = Path('app/build.gradle.kts')
+          gs = g.read_text().replace('versionCode = 6\n        versionName = "1.1.4"', 'versionCode = 7\n        versionName = "1.1.5"')
+          signing = '''\n    signingConfigs {\n        create("evaultStable") {\n            val keyFile = rootProject.file("signing/evault-debug.jks")\n            if (keyFile.exists()) {\n                storeFile = keyFile\n                storePassword = "android"\n                keyAlias = "androiddebugkey"\n                keyPassword = "android"\n            }\n        }\n    }\n\n    buildTypes {\n        getByName("debug") {\n            val keyFile = rootProject.file("signing/evault-debug.jks")\n            if (keyFile.exists()) signingConfig = signingConfigs.getByName("evaultStable")\n        }\n    }\n'''
+          assert 'signingConfigs {' not in gs
+          gs = gs.replace('\ndependencies {', signing + '\ndependencies {')
+          g.write_text(gs)
+
+          r = Path('.github/workflows/release.yml')
+          rs = r.read_text()
+          rs = rs.replace("code == '6'", "code == '7'").replace("name == '1.1.4'", "name == '1.1.5'")
+          rs = rs.replace('eVault-v1.1.4', 'eVault-v1.1.5').replace('v1.1.4', 'v1.1.5')
+          marker = '      - name: Set up Gradle\n'
+          restore = '''      - name: Restore stable signing key\n        shell: bash\n        run: |\n          mkdir -p signing\n          base64 -d signing/evault-debug.jks.b64 > signing/evault-debug.jks\n          test -s signing/evault-debug.jks\n\n'''
+          assert marker in rs
+          rs = rs.replace(marker, restore + marker) if 'Restore stable signing key' not in rs else rs
+          r.write_text(rs)
+          print('patched')
+
+      - name: Create stable signing key if missing
+        shell: bash
+        run: |
+          if [ ! -f signing/evault-debug.jks.b64 ]; then
+            mkdir -p signing
+            keytool -genkeypair -keystore signing/evault-debug.jks -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
+            base64 -w0 signing/evault-debug.jks > signing/evault-debug.jks.b64
+            rm signing/evault-debug.jks
+          fi
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          git config user.name "hazelinos"
+          git config user.email "feezet1@gmail.com"
+          git add -A
+          git status --short
+          git commit -m "chore: apply v1.1.5 fixes" || exit 0
+          git push
