@@ -108,3 +108,5 @@ jobs:
           git status --short
           git commit -m "chore: apply v1.1.5 fixes" || exit 0
           git push
+
+# trigger
