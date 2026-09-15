@@ -10,8 +10,27 @@ android {
         applicationId = "id.feezet.efauth"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.1.4"
+        versionCode = 7
+        versionName = "1.1.5"
+    }
+
+    signingConfigs {
+        create("evaultStable") {
+            val keyFile = rootProject.file("signing/evault-debug.jks")
+            if (keyFile.exists()) {
+                storeFile = keyFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            val keyFile = rootProject.file("signing/evault-debug.jks")
+            if (keyFile.exists()) signingConfig = signingConfigs.getByName("evaultStable")
+        }
     }
 }
 
