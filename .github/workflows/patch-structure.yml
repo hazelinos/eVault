@@ -27,23 +27,24 @@ jobs:
           new='''                    DocumentFile lib=getTree(KEY_LIBRARY), target=getTree(KEY_TARGET);\n                    if(!validDir(lib)){updateStatus("AUTH Library belum dipilih.");showDeleteDataSaveDialog();return;}\n                    DocumentFile auth=target==null?null:target.findFile(AUTH_FILE); if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}\n                    showSaveCategoryDialog(lib, name, auth);'''
           assert old in s
           s=s.replace(old,new)
-          old='''    private void showCreateDialog() {'''
-          new='''    private void showSaveCategoryDialog(DocumentFile library, String accountName, DocumentFile auth) {\n        String[] defaults = {"AKUN", "Asset", "EPIC NEW"};\n        new AlertDialog.Builder(this).setTitle("Kategori akun").setItems(defaults, (d, which) -> {\n            String categoryName = defaults[which];\n            DocumentFile category = categoryRoot(library, categoryName);\n            if (!validDir(category)) { updateStatus("Gagal membuka kategori: " + categoryName); return; }\n            if (category.findFile(accountName) != null) { updateStatus("Nama folder sudah digunakan: " + accountName); return; }\n            DocumentFile folder = category.createDirectory(accountName);\n            if (folder == null) { updateStatus("Gagal membuat folder akun."); return; }\n            if (copyFile(auth, folder, AUTH_FILE)) { clearWorkflow(); loadAccounts(); updateStatus("✓ AUTH disimpan: " + categoryName + " / " + accountName); }\n            else { folder.delete(); updateStatus("Gagal menyimpan AUTH."); }\n        }).setNegativeButton("BATAL", null).show();\n    }\n\n    private void showCreateDialog() {'''
-          assert old in s
-          s=s.replace(old,new)
+          s=s.replace('''    private void showCreateDialog() {''','''    private void showSaveCategoryDialog(DocumentFile library, String accountName, DocumentFile auth) {\n        String[] defaults = {"AKUN", "Asset", "EPIC NEW"};\n        new AlertDialog.Builder(this).setTitle("Kategori akun").setItems(defaults, (d, which) -> {\n            String categoryName = defaults[which];\n            DocumentFile category = categoryRoot(library, categoryName);\n            if (!validDir(category)) { updateStatus("Gagal membuka kategori: " + categoryName); return; }\n            if (category.findFile(accountName) != null) { updateStatus("Nama folder sudah digunakan: " + accountName); return; }\n            DocumentFile folder = category.createDirectory(accountName);\n            if (folder == null) { updateStatus("Gagal membuat folder akun."); return; }\n            if (copyFile(auth, folder, AUTH_FILE)) { clearWorkflow(); loadAccounts(); updateStatus("✓ AUTH disimpan: " + categoryName + " / " + accountName); }\n            else { folder.delete(); updateStatus("Gagal menyimpan AUTH."); }\n        }).setNegativeButton("BATAL", null).show();\n    }\n\n    private void showCreateDialog() {''')
           old='''    private void startCreateWorkflow(DocumentFile root,int count) {\n        root=accountRoot(root); if(!validDir(root)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}\n        DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}\n        DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(root,count);\n    }'''
           new='''    private void startCreateWorkflow(DocumentFile root,int count) {\n        root=accountRoot(root); if(!validDir(root)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}\n        DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}\n        new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(new String[]{"AKUN","Asset","EPIC NEW"}, (d,which) -> {\n            String category = new String[]{"AKUN","Asset","EPIC NEW"}[which];\n            DocumentFile cat = categoryRoot(root, category);\n            if(!validDir(cat)){updateStatus("Gagal membuka kategori: "+category);return;}\n            prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();\n            DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(cat,count);\n        }).setNegativeButton("BATAL",null).show();\n    }'''
           assert old in s
           s=s.replace(old,new)
-          s=s.replace('private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"" )).size();clearWorkflow();', 'private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"" )).size();clearWorkflow();') if False else s
+          old='''                    DocumentFile root=accountRoot(getTree(KEY_LIBRARY));if(!validDir(root)){updateStatus("Folder AKUN tidak tersedia.");clearWorkflow();return;}\n                    DocumentFile folder=root.findFile(current);'''
+          new='''                    DocumentFile root=categoryRoot(getTree(KEY_LIBRARY), prefs.getString(KEY_CREATE_CATEGORY, "AKUN"));\n                    if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}\n                    DocumentFile folder=root.findFile(current);'''
+          assert old in s
+          s=s.replace(old,new)
           s=s.replace('remove(KEY_CREATE_COUNT).apply();', 'remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).apply();')
           s=s.replace('static class Account{final String name;final DocumentFile file;Account(String name,DocumentFile file){this.name=name;this.file=file;}}', 'static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}')
           p.write_text(s)
-      - name: Commit
+      - name: Commit and remove temporary workflow
         shell: bash
         run: |
           git config user.name "hazelinos"
           git config user.email "feezet1@gmail.com"
-          git add app/src/main/java/id/feezet/efauth/MainActivity.java .github/workflows/patch-structure.yml
-          git commit -m "chore: apply category structure" || exit 0
+          rm -f .github/workflows/patch-structure.yml
+          git add -A
+          git commit -m "chore: apply category structure"
           git push
