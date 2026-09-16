@@ -557,10 +557,21 @@ public class MainActivity extends AppCompatActivity {
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
 
     private void startAutoLogin(){
+        StringBuilder dbg = new StringBuilder();
+        dbg.append("accounts.size() = ").append(accounts.size()).append("\n");
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
         final List<String> categories = getLibraryCategories();
-        if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
+        dbg.append("getLibraryCategories().size() = ").append(categories.size()).append("\n");
+        dbg.append("categories = ").append(categories).append("\n");
+        dbg.append("KEY_LIBRARY = ").append(prefs.getString(KEY_LIBRARY, "(null)")).append("\n");
+        DocumentFile lib = getTree(KEY_LIBRARY);
+        dbg.append("lib = ").append(lib==null?"NULL":"OK").append("\n");
+        if(categories.isEmpty()){
+            showDebugDialog(dbg.toString());
+            updateStatus("Tidak ada kategori akun ditemukan di library.");
+            return;
+        }
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
             .setMessage("Pilih kategori akun untuk auto login:")
