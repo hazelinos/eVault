@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -54,11 +55,14 @@ public class MainActivity extends AppCompatActivity {
     private TextView accountsText;
     private Spinner accountSpinner;
     private final ArrayList<Account> accounts = new ArrayList<>();
+    private final ArrayList<Account> filteredAccounts = new ArrayList<>();
     private boolean workflowLaunchPending = false;
     private final Handler autoLoginHandler = new Handler(Looper.getMainLooper());
     private boolean autoLoginRunning = false;
     private int autoLoginIndex = 0;
     private EditText autoLoginDelayEdit;
+    private int setupCardId = View.NO_ID;
+    private String accountFilter = "";
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -122,69 +126,87 @@ public class MainActivity extends AppCompatActivity {
         subtitle.setTextColor(color(R.color.accent));
         subtitle.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams subLp = fullLp();
-        subLp.bottomMargin = dp(20);
+        subLp.bottomMargin = dp(24);
         root.addView(subtitle, subLp);
 
-        // ---- Card: Setup ----
+        // ---- Setup (collapsed) ----
+        TextView setupToggle = new TextView(this);
+        setupToggle.setText("⚙️ Setup");
+        setupToggle.setTextSize(13);
+        setupToggle.setTextColor(color(R.color.textSecondary));
+        setupToggle.setPadding(0, 0, 0, dp(8));
+        setupToggle.setOnClickListener(v -> toggleSetupVisibility());
+        root.addView(setupToggle, fullLp());
+
         LinearLayout setupCard = card();
-        setupCard.addView(sectionLabel("SETUP"));
+        setupCard.setVisibility(View.GONE);
+        setupCard.setId(View.generateViewId());
+        this.setupCardId = setupCard.getId();
         Button library = secondaryButton("PILIH AUTH LIBRARY", v -> chooseLibrary());
         setupCard.addView(library, spacedLp(dp(4)));
         Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
         setupCard.addView(target, spacedLp(dp(10)));
         root.addView(setupCard, cardLp());
 
-        // ---- Card: Akun ----
-        LinearLayout accountCard = card();
-        accountCard.addView(sectionLabel("AKUN"));
+        // ---- Akun (main focus) ----
         accountsText = new TextView(this);
-        accountsText.setText("Akun ditemukan: 0");
+        accountsText.setText("Akun: 0 ditemukan");
         accountsText.setTextColor(color(R.color.textSecondary));
         accountsText.setTextSize(13);
-        accountCard.addView(accountsText, spacedLp(dp(8)));
+        accountsText.setPadding(0, dp(4), 0, dp(8));
+        root.addView(accountsText, fullLp());
+
+        // Search input
+        EditText searchInput = new EditText(this);
+        searchInput.setHint("Cari akun...");
+        searchInput.setSingleLine(true);
+        styleInput(searchInput);
+        searchInput.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) { filterAccounts(s.toString()); }
+            public void afterTextChanged(android.text.Editable s) {}
+        });
+        LinearLayout.LayoutParams searchLp = fullLp();
+        searchLp.bottomMargin = dp(8);
+        root.addView(searchInput, searchLp);
 
         accountSpinner = new Spinner(this);
-        accountSpinner.setBackground(ContextCompat.getDrawable(this, R.drawable.input_bg));
+        accountSpinner.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
         accountSpinner.setPadding(dp(12), dp(10), dp(12), dp(10));
-        accountCard.addView(accountSpinner, spacedLp(dp(12)));
+        LinearLayout.LayoutParams spinnerLp = fullLp();
+        spinnerLp.bottomMargin = dp(12);
+        root.addView(accountSpinner, spinnerLp);
 
+        // Actions row 1: SWITCH + AUTO LOGIN
         LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
         Button switchBtn = primaryButton("SWITCH", v -> switchSelected());
-        row1.addView(switchBtn, weightLp(dp(4), 0));
-        Button deleteDataBtn = dangerButton("HAPUS DATA", v -> showDeleteDataConfirmDialog());
-        row1.addView(deleteDataBtn, weightLp(dp(4), 1));
-        accountCard.addView(row1, spacedLp(0));
-        root.addView(accountCard, cardLp());
+        row1.addView(switchBtn, weightLp(dp(8), 0));
+        Button autoBtn = primaryButton("AUTO LOGIN", v -> startAutoLogin());
+        row1.addView(autoBtn, weightLp(dp(8), 1));
+        LinearLayout.LayoutParams row1Lp = fullLp();
+        row1Lp.bottomMargin = dp(8);
+        root.addView(row1, row1Lp);
 
-        // ---- Card: Auto Login ----
-        LinearLayout autoCard = card();
-        autoCard.addView(sectionLabel("AUTO LOGIN"));
+        // Delay input
         autoLoginDelayEdit = new EditText(this);
         autoLoginDelayEdit.setInputType(2);
         autoLoginDelayEdit.setSingleLine(true);
         autoLoginDelayEdit.setText("10");
-        autoLoginDelayEdit.setHint("Delay (detik)");
+        autoLoginDelayEdit.setHint("Delay AUTO LOGIN (detik)");
         styleInput(autoLoginDelayEdit);
-        autoCard.addView(autoLoginDelayEdit, spacedLp(dp(10)));
+        LinearLayout.LayoutParams delayLp = fullLp();
+        delayLp.bottomMargin = dp(8);
+        root.addView(autoLoginDelayEdit, delayLp);
 
+        // Actions row 2: HAPUS DATA + BUAT BARU
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button autoBtn = primaryButton("MULAI", v -> startAutoLogin());
-        row2.addView(autoBtn, weightLp(dp(4), 0));
-        Button stopBtn = secondaryButton("STOP", v -> stopAutoLogin());
-        row2.addView(stopBtn, weightLp(dp(4), 1));
-        autoCard.addView(row2, spacedLp(0));
-        root.addView(autoCard, cardLp());
-
-        // ---- Card: Kelola ----
-        LinearLayout manageCard = card();
-        manageCard.addView(sectionLabel("KELOLA"));
-        LinearLayout row3 = new LinearLayout(this); row3.setOrientation(LinearLayout.HORIZONTAL);
-        Button deleteAuthBtn = dangerButton("HAPUS AUTH INI", v -> deleteCurrentAuth());
-        row3.addView(deleteAuthBtn, weightLp(dp(4), 0));
-        Button createBtn = secondaryButton("BUAT AKUN BARU", v -> showCreateDialog());
-        row3.addView(createBtn, weightLp(dp(4), 1));
-        manageCard.addView(row3, spacedLp(0));
-        root.addView(manageCard, cardLp());
+        Button deleteDataBtn = dangerButton("HAPUS DATA", v -> showDeleteDataConfirmDialog());
+        row2.addView(deleteDataBtn, weightLp(dp(8), 0));
+        Button createBtn = secondaryButton("BUAT BARU", v -> showCreateDialog());
+        row2.addView(createBtn, weightLp(dp(8), 1));
+        LinearLayout.LayoutParams row2Lp = fullLp();
+        row2Lp.bottomMargin = dp(16);
+        root.addView(row2, row2Lp);
 
         // ---- Enter game (big primary) ----
         Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> { stopAutoLogin(); clearWorkflow(); launchGame(); });
@@ -219,10 +241,27 @@ public class MainActivity extends AppCompatActivity {
         return ContextCompat.getColor(this, resId); 
     }
 
+    private GradientDrawable makeDrawable(int color, int cornerRadius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setShape(GradientDrawable.RECTANGLE);
+        drawable.setCornerRadius(cornerRadius);
+        drawable.setColor(color);
+        return drawable;
+    }
+
+    private GradientDrawable makeDrawableWithStroke(int fillColor, int strokeColor, int cornerRadius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setShape(GradientDrawable.RECTANGLE);
+        drawable.setCornerRadius(cornerRadius);
+        drawable.setColor(fillColor);
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
+    }
+
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(ContextCompat.getDrawable(this, R.drawable.card_bg));
+        c.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(8)));
         c.setPadding(dp(16), dp(14), dp(16), dp(16));
         return c;
     }
@@ -261,27 +300,27 @@ public class MainActivity extends AppCompatActivity {
 
     private Button primaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_primary));
-        b.setTextColor(color(R.color.white));
+        b.setBackground(makeDrawable(Color.parseColor("#058CD7"), dp(6)));
+        b.setTextColor(Color.WHITE);
         return b;
     }
 
     private Button secondaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_secondary));
-        b.setTextColor(color(R.color.textPrimary));
+        b.setBackground(makeDrawable(Color.parseColor("#552CB7"), dp(6)));
+        b.setTextColor(Color.parseColor("#F8F9FA"));
         return b;
     }
 
     private Button dangerButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(ContextCompat.getDrawable(this, R.drawable.btn_danger));
-        b.setTextColor(color(R.color.dangerText));
+        b.setBackground(makeDrawable(Color.parseColor("#FD5A46"), dp(6)));
+        b.setTextColor(Color.WHITE);
         return b;
     }
 
     private void styleInput(EditText e) {
-        e.setBackground(ContextCompat.getDrawable(this, R.drawable.input_bg));
+        e.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
         e.setTextColor(color(R.color.textPrimary));
         e.setHintTextColor(color(R.color.textSecondary));
         e.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -333,10 +372,34 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         Collections.sort(accounts, Comparator.comparing(a -> (a.category + "/" + a.name).toLowerCase()));
+        refreshAccountSpinner();
+    }
+
+    private void refreshAccountSpinner() {
+        filteredAccounts.clear();
+        String q = accountFilter == null ? "" : accountFilter.trim().toLowerCase();
+        for (Account a : accounts) {
+            String label = (a.category + " / " + a.name).toLowerCase();
+            if (q.isEmpty() || label.contains(q)) filteredAccounts.add(a);
+        }
         ArrayList<String> names = new ArrayList<>();
-        for (Account a : accounts) names.add(a.category + " / " + a.name);
+        for (Account a : filteredAccounts) names.add(a.category + " / " + a.name);
         accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
-        accountsText.setText("Akun ditemukan: " + accounts.size());
+        if (q.isEmpty()) {
+            accountsText.setText("Akun: " + accounts.size() + " ditemukan");
+        } else {
+            accountsText.setText("Akun: " + filteredAccounts.size() + " / " + accounts.size() + " cocok");
+        }
+    }
+
+    private void filterAccounts(String query) {
+        accountFilter = query;
+        refreshAccountSpinner();
+    }
+
+    private void toggleSetupVisibility() {
+        View card = findViewById(setupCardId);
+        if (card != null) card.setVisibility(card.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
     }
 
     private void collectAccounts(DocumentFile categoryRoot, String categoryName) {
@@ -360,9 +423,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void switchSelected() {
         stopAutoLogin(); clearWorkflow();
-        if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
+        if (filteredAccounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
         int pos = accountSpinner.getSelectedItemPosition();
-        if (pos >= 0 && pos < accounts.size() && copyAuth(accounts.get(pos))) launchGame();
+        if (pos >= 0 && pos < filteredAccounts.size() && copyAuth(filteredAccounts.get(pos))) launchGame();
     }
 
     private void deleteCurrentAuth() {
@@ -479,8 +542,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
 
-    private void startAutoLogin(){if(accounts.isEmpty()){updateStatus("Library kosong.");return;}if(autoLoginRunning)return;clearWorkflow();autoLoginRunning=true;autoLoginIndex=0;runNextAutoLogin();}
-    private void runNextAutoLogin(){if(!autoLoginRunning||autoLoginIndex>=accounts.size()){autoLoginRunning=false;updateStatus("✓ AUTO LOGIN selesai. Total: "+accounts.size());return;}Account account=accounts.get(autoLoginIndex);updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+accounts.size()+"]: "+account.category+" / "+account.name);if(!copyAuth(account)){autoLoginRunning=false;return;}launchGame();autoLoginIndex++;autoLoginHandler.postDelayed(this::runNextAutoLogin,getAutoLoginDelayMs());}
+    private void startAutoLogin(){if(filteredAccounts.isEmpty()){updateStatus("Library kosong.");return;}if(autoLoginRunning)return;clearWorkflow();autoLoginRunning=true;autoLoginIndex=0;runNextAutoLogin();}
+    private void runNextAutoLogin(){if(!autoLoginRunning||autoLoginIndex>=filteredAccounts.size()){autoLoginRunning=false;updateStatus("✓ AUTO LOGIN selesai. Total: "+filteredAccounts.size());return;}Account account=filteredAccounts.get(autoLoginIndex);updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+filteredAccounts.size()+"]: "+account.category+" / "+account.name);if(!copyAuth(account)){autoLoginRunning=false;return;}launchGame();autoLoginIndex++;autoLoginHandler.postDelayed(this::runNextAutoLogin,getAutoLoginDelayMs());}
     private long getAutoLoginDelayMs(){try{int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());return Math.max(2,seconds)*1000L;}catch(Exception e){return 10000L;}}
     private void stopAutoLogin(){autoLoginRunning=false;autoLoginHandler.removeCallbacksAndMessages(null);updateStatus("AUTO LOGIN dihentikan.");}
 
