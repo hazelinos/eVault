@@ -161,10 +161,6 @@ public class MainActivity extends AppCompatActivity {
         styleInput(autoLoginDelayEdit);
         setupCard.addView(autoLoginDelayEdit, spacedLp(dp(6)));
 
-        // DEBUG button (temporary)
-        Button debugBtn = secondaryButton("🔍 DEBUG LIBRARY", v -> debugLibraryStructure());
-        setupCard.addView(debugBtn, spacedLp(dp(14)));
-
         root.addView(setupCard, cardLp());
 
         // ---- Akun (main focus) ----
@@ -363,7 +359,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void saveTree(String key, Uri uri) {
         try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) {}
-        prefs.edit().putString(key, uri.toString()).apply();
+        prefs.edit().putString(key, uri.toString()).commit();
     }
 
     private DocumentFile getTree(String key) {
@@ -592,51 +588,6 @@ public class MainActivity extends AppCompatActivity {
         }
         Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
         return result;
-    }
-
-    // TEMPORARY: debug to inspect library structure
-    private void debugLibraryStructure() {
-        StringBuilder sb = new StringBuilder();
-        String raw = prefs.getString(KEY_LIBRARY, "(kosong)");
-        sb.append("URI: ").append(raw).append("\n\n");
-        DocumentFile lib = getTree(KEY_LIBRARY);
-        if (lib == null) {
-            sb.append("getTree() = NULL\n");
-            showDebugDialog(sb.toString());
-            return;
-        }
-        sb.append("lib.isDirectory() = ").append(lib.isDirectory()).append("\n");
-        sb.append("lib.canRead() = ").append(lib.canRead()).append("\n");
-        sb.append("lib.getName() = ").append(lib.getName()).append("\n\n");
-        DocumentFile[] children = lib.listFiles();
-        sb.append("Jumlah child level-1 = ").append(children.length).append("\n\n");
-        for (int i = 0; i < children.length; i++) {
-            DocumentFile c = children[i];
-            sb.append(i + 1).append(". \"").append(c.getName()).append("\" | dir=").append(c.isDirectory()).append(" file=").append(c.isFile());
-            if (c.isDirectory()) {
-                DocumentFile[] sub = c.listFiles();
-                sb.append(" | subitems=").append(sub.length);
-                // show first few subitems
-                int shown = 0;
-                for (DocumentFile s : sub) {
-                    if (shown++ >= 3) break;
-                    sb.append("\n     - ").append(s.getName()).append(" dir=").append(s.isDirectory());
-                }
-            }
-            sb.append("\n");
-        }
-        showDebugDialog(sb.toString());
-    }
-
-    private void showDebugDialog(String text) {
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextSize(11);
-        tv.setTextIsSelectable(true);
-        tv.setPadding(dp(16), dp(16), dp(16), dp(16));
-        scroll.addView(tv);
-        new AlertDialog.Builder(this).setTitle("DEBUG: Struktur Library").setView(scroll).setPositiveButton("TUTUP", null).show();
     }
 
     private void startAutoLoginForCategory(String category){
