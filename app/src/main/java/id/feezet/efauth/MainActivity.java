@@ -50,7 +50,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String MODE_NONE = "none";
     private static final String MODE_CREATE = "create";
     private static final String PACKAGE = "epl.idsphone";
-    private static final String[] DEFAULT_CATEGORIES = {"AKUN", "Asset", "EPIC NEW"};
 
     private SharedPreferences prefs;
     private TextView status;
@@ -460,10 +459,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateDialog() {
-        stopAutoLogin(); clearWorkflow(); final EditText input=new EditText(this); input.setInputType(2); input.setSingleLine(true); input.setHint("Jumlah akun (1-10)");
+        stopAutoLogin(); clearWorkflow(); final EditText input=new EditText(this); input.setInputType(2); input.setSingleLine(true); input.setHint("Jumlah akun");
         new AlertDialog.Builder(this).setTitle("BUAT AKUN BARU").setMessage("Mau buat berapa akun?").setView(input).setNegativeButton("BATAL",null).setPositiveButton("LANJUT",(d,w)->{
             int count; try{count=Integer.parseInt(input.getText().toString().trim());}catch(Exception e){count=0;}
-            if(count<1||count>10){updateStatus("Jumlah akun harus 1 sampai 10.");return;} prefs.edit().putInt(KEY_CREATE_COUNT,count).apply(); showCreateNamingDialog(count);
+            if(count<1){updateStatus("Jumlah akun minimal 1.");return;} prefs.edit().putInt(KEY_CREATE_COUNT,count).apply(); showCreateNamingDialog(count);
         }).show();
     }
 
@@ -484,10 +483,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startCreateWorkflow(DocumentFile root,int count) {
-        final DocumentFile accountRoot=accountRoot(root); if(!validDir(accountRoot)||count<1||count>10){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}
+        final DocumentFile accountRoot=accountRoot(root); if(!validDir(accountRoot)||count<1){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}
         final DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
-        new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(DEFAULT_CATEGORIES,(d,which)->{
-            String category=DEFAULT_CATEGORIES[which]; DocumentFile categoryDir=categoryRoot(accountRoot,category);
+        final List<String> categories = getLibraryCategories();
+        if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
+        new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(categories.toArray(new String[0]),(d,which)->{
+            String category=categories.get(which); DocumentFile categoryDir=categoryRoot(accountRoot,category);
             if(!validDir(categoryDir)){updateStatus("Gagal membuka kategori: "+category);return;}
             prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();
             DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(categoryDir,count);
@@ -522,8 +523,8 @@ public class MainActivity extends AppCompatActivity {
             }
             return Collections.emptyList();
         }
-        // Numeric: batch 1-1000 with slots count
-        for(int batch=1;batch<=1000;batch++){
+        // Numeric: batch starting at 1, slots count per batch
+        for(int batch=1;batch<=1000000;batch++){
             boolean allFree=true;ArrayList<String> candidates=new ArrayList<>();
             for(int slot=1;slot<=count;slot++){
                 String name=batch+"-"+slot;
@@ -544,8 +545,7 @@ public class MainActivity extends AppCompatActivity {
                 .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
                 .setPositiveButton("SIMPAN",(d,w)->{
                     DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
-                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}
-                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
+                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
                     if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
                 }).show();
     }
@@ -555,12 +555,25 @@ public class MainActivity extends AppCompatActivity {
     private void startAutoLogin(){
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
+        final List<String> categories = getLibraryCategories();
+        if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
             .setMessage("Pilih kategori akun untuk auto login:")
-            .setItems(DEFAULT_CATEGORIES,(d,which)->startAutoLoginForCategory(DEFAULT_CATEGORIES[which]))
+            .setItems(categories.toArray(new String[0]),(d,which)->startAutoLoginForCategory(categories.get(which)))
             .setNegativeButton("BATAL",null)
             .show();
+    }
+
+    private List<String> getLibraryCategories(){
+        List<String> result = new ArrayList<>();
+        DocumentFile lib = getTree(KEY_LIBRARY);
+        if(!validDir(lib)) return result;
+        for(DocumentFile child : lib.listFiles()){
+            if(child.isDirectory()) result.add(nameOf(child));
+        }
+        Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
+        return result;
     }
 
     private void startAutoLoginForCategory(String category){
