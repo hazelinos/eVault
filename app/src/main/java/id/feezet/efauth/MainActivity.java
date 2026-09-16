@@ -557,23 +557,30 @@ public class MainActivity extends AppCompatActivity {
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
 
     private void startAutoLogin(){
-        StringBuilder dbg = new StringBuilder();
-        dbg.append("acc=").append(accounts.size());
-        dbg.append(" running=").append(autoLoginRunning);
         List<String> categories = getLibraryCategories();
-        dbg.append(" cat=").append(categories.size());
-        dbg.append(" ").append(categories);
-        updateStatus(dbg.toString());
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
         if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
-        final List<String> cats = categories;
-        new AlertDialog.Builder(this)
+        showCategoryPickerDialog(categories);
+    }
+
+    private void showCategoryPickerDialog(final List<String> categories){
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(8), dp(8), dp(8));
+        for (final String cat : categories) {
+            int count = 0;
+            for (Account a : accounts) if (a.category.equals(cat)) count++;
+            Button b = secondaryButton(cat + "  (" + count + ")", v -> startAutoLoginForCategory(cat));
+            box.addView(b, spacedLp(dp(6)));
+        }
+        final AlertDialog dlg = new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
             .setMessage("Pilih kategori akun untuk auto login:")
-            .setItems(cats.toArray(new String[0]),(d,which)->startAutoLoginForCategory(cats.get(which)))
-            .setNegativeButton("BATAL",null)
-            .show();
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .create();
+        dlg.show();
     }
 
     private List<String> getLibraryCategories(){
