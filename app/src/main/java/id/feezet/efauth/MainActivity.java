@@ -71,7 +71,17 @@ public class MainActivity extends AppCompatActivity {
                 if (r.getResultCode() == RESULT_OK && r.getData() != null) {
                     saveTree(KEY_LIBRARY, r.getData().getData());
                     loadAccounts();
-                    updateStatus("✓ AUTH Library tersimpan.");
+                    if (accounts.isEmpty()) {
+                        // Retry after a short delay: DocumentFile may not be ready immediately
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            loadAccounts();
+                            updateStatus(accounts.isEmpty()
+                                ? "✓ Library tersimpan, tapi 0 akun ditemukan. Cek struktur folder."
+                                : "✓ AUTH Library tersimpan. " + accounts.size() + " akun.");
+                        }, 800);
+                    } else {
+                        updateStatus("✓ AUTH Library tersimpan. " + accounts.size() + " akun.");
+                    }
                 }
             });
 
@@ -358,7 +368,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void saveTree(String key, Uri uri) {
-        try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) {}
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) {}
         prefs.edit().putString(key, uri.toString()).commit();
     }
 
