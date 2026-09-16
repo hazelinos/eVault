@@ -558,24 +558,20 @@ public class MainActivity extends AppCompatActivity {
 
     private void startAutoLogin(){
         StringBuilder dbg = new StringBuilder();
-        dbg.append("accounts.size() = ").append(accounts.size()).append("\n");
+        dbg.append("acc=").append(accounts.size());
+        dbg.append(" running=").append(autoLoginRunning);
+        List<String> categories = getLibraryCategories();
+        dbg.append(" cat=").append(categories.size());
+        dbg.append(" ").append(categories);
+        updateStatus(dbg.toString());
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
-        final List<String> categories = getLibraryCategories();
-        dbg.append("getLibraryCategories().size() = ").append(categories.size()).append("\n");
-        dbg.append("categories = ").append(categories).append("\n");
-        dbg.append("KEY_LIBRARY = ").append(prefs.getString(KEY_LIBRARY, "(null)")).append("\n");
-        DocumentFile lib = getTree(KEY_LIBRARY);
-        dbg.append("lib = ").append(lib==null?"NULL":"OK").append("\n");
-        if(categories.isEmpty()){
-            showDebugDialog(dbg.toString());
-            updateStatus("Tidak ada kategori akun ditemukan di library.");
-            return;
-        }
+        if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
+        final List<String> cats = categories;
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
             .setMessage("Pilih kategori akun untuk auto login:")
-            .setItems(categories.toArray(new String[0]),(d,which)->startAutoLoginForCategory(categories.get(which)))
+            .setItems(cats.toArray(new String[0]),(d,which)->startAutoLoginForCategory(cats.get(which)))
             .setNegativeButton("BATAL",null)
             .show();
     }
