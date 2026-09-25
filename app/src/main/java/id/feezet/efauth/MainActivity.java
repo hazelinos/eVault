@@ -33,6 +33,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -45,6 +48,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_COUNT = "create_count";
     private static final String KEY_CREATE_CATEGORY = "create_category";
     private static final String KEY_CREATE_NAMING = "create_naming";
+    private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
+    private static final String KEY_ACTIVITY_LOG = "activity_log";
+    private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
+    private static final int MAX_ACTIVITY_LOGS = 300;
     private static final String NAMING_NUMERIC = "numeric";
     private static final String NAMING_LETTERED = "lettered";
     private static final String MODE_NONE = "none";
@@ -166,8 +173,11 @@ public class MainActivity extends AppCompatActivity {
         autoLoginDelayEdit = new EditText(this);
         autoLoginDelayEdit.setInputType(2);
         autoLoginDelayEdit.setSingleLine(true);
-        autoLoginDelayEdit.setText("4");
-        autoLoginDelayEdit.setHint("4");
+        autoLoginDelayEdit.setText(String.valueOf(prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)));
+        autoLoginDelayEdit.setHint(String.valueOf(DEFAULT_AUTO_LOGIN_DELAY));
+        autoLoginDelayEdit.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) saveAutoLoginDelay();
+        });
         styleInput(autoLoginDelayEdit);
         setupCard.addView(autoLoginDelayEdit, spacedLp(dp(6)));
 
@@ -221,6 +231,12 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams row2Lp = fullLp();
         row2Lp.bottomMargin = dp(16);
         root.addView(row2, row2Lp);
+
+        // ---- Activity Log ----
+        Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
+        LinearLayout.LayoutParams activityLogLp = fullLp();
+        activityLogLp.bottomMargin = dp(16);
+        root.addView(activityLogBtn, activityLogLp);
 
         // ---- Enter game (big primary) ----
         Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> { stopAutoLogin(); clearWorkflow(); launchGame(); });
@@ -565,7 +581,76 @@ public class MainActivity extends AppCompatActivity {
 
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
 
+    private void saveAutoLoginDelay() {
+        if (autoLoginDelayEdit == null) return;
+        try {
+            int seconds = Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
+            if (seconds < 2) {
+                seconds = 2;
+                autoLoginDelayEdit.setText("2");
+            }
+            prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
+        } catch (Exception ignored) {
+            autoLoginDelayEdit.setText(String.valueOf(prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)));
+        }
+    }
+
+    private void addActivityLog(String message) {
+        if (prefs == null) return;
+        String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+        String entry = "[" + timestamp + "] " + message;
+        String old = prefs.getString(KEY_ACTIVITY_LOG, "");
+        ArrayList<String> lines = new ArrayList<>();
+        if (old != null && !old.isEmpty()) {
+            lines.addAll(Arrays.asList(old.split("\\n", -1)));
+        }
+        lines.add(entry);
+        int from = Math.max(0, lines.size() - MAX_ACTIVITY_LOGS);
+        StringBuilder kept = new StringBuilder();
+        for (int i = from; i < lines.size(); i++) {
+            if (kept.length() > 0) kept.append("\n");
+            kept.append(lines.get(i));
+        }
+        prefs.edit().putString(KEY_ACTIVITY_LOG, kept.toString()).apply();
+    }
+
+    private void clearActivityLogs() {
+        prefs.edit().remove(KEY_ACTIVITY_LOG).apply();
+        updateStatus("✓ Log aktivitas dihapus.");
+    }
+
+    private void showActivityLogDialog() {
+        String logs = prefs.getString(KEY_ACTIVITY_LOG, "");
+        if (logs == null || logs.isEmpty()) logs = "Belum ada aktivitas.";
+        TextView logText = new TextView(this);
+        logText.setText(logs);
+        logText.setTextSize(12);
+        logText.setTextColor(color(R.color.textPrimary));
+        logText.setTextIsSelectable(true);
+        logText.setPadding(dp(12), dp(12), dp(12), dp(12));
+        logText.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(logText);
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(420));
+        scrollLp.setMargins(dp(8), dp(4), dp(8), dp(4));
+
+        new AlertDialog.Builder(this)
+            .setTitle("LOG AKTIVITAS")
+            .setView(scroll)
+            .setNegativeButton("HAPUS LOG", (d, w) -> new AlertDialog.Builder(this)
+                .setTitle("Hapus Log")
+                .setMessage("Hapus semua log aktivitas?")
+                .setNegativeButton("BATAL", null)
+                .setPositiveButton("HAPUS", (d2, w2) -> clearActivityLogs())
+                .show())
+            .setPositiveButton("TUTUP", null)
+            .show();
+    }
+
     private void startAutoLogin(){
+        addActivityLog("AUTO LOGIN dimulai.");
         List<String> categories = getLibraryCategories();
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
@@ -604,6 +689,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startAutoLoginForCategory(String category){
+        addActivityLog("Kategori AUTO LOGIN dipilih: " + category);
         clearWorkflow();
         autoLoginAccounts.clear();
         for(Account a:accounts){ if(a.category.equals(category)) autoLoginAccounts.add(a); }
@@ -611,20 +697,85 @@ public class MainActivity extends AppCompatActivity {
         autoLoginRunning=true;autoLoginIndex=0;runNextAutoLogin();
     }
 
-    private void runNextAutoLogin(){if(!autoLoginRunning||autoLoginIndex>=autoLoginAccounts.size()){autoLoginRunning=false;updateStatus("✓ AUTO LOGIN selesai. Total: "+autoLoginAccounts.size());return;}Account account=autoLoginAccounts.get(autoLoginIndex);updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);if(!copyAuth(account)){autoLoginRunning=false;return;}launchGame();autoLoginIndex++;autoLoginHandler.postDelayed(this::runNextAutoLogin,getAutoLoginDelayMs());}
-    private long getAutoLoginDelayMs(){try{int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());return Math.max(2,seconds)*1000L;}catch(Exception e){return 4000L;}}
-    private void stopAutoLogin(){autoLoginRunning=false;autoLoginHandler.removeCallbacksAndMessages(null);updateStatus("AUTO LOGIN dihentikan.");}
+    private void runNextAutoLogin(){
+        if(!autoLoginRunning||autoLoginIndex>=autoLoginAccounts.size()){
+            int total = autoLoginAccounts.size();
+            autoLoginRunning=false;
+            addActivityLog("AUTO LOGIN selesai. Total: " + total);
+            updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
+            return;
+        }
+        Account account=autoLoginAccounts.get(autoLoginIndex);
+        addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
+        updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
+        if(!copyAuth(account)){autoLoginRunning=false;addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);return;}
+        boolean launched = launchGame();
+        if (!launched) {
+            addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
+            autoLoginRunning=false;
+            return;
+        }
+        autoLoginIndex++;
+        autoLoginHandler.postDelayed(this::runNextAutoLogin,getAutoLoginDelayMs());
+    }
+    private long getAutoLoginDelayMs(){
+        try{
+            int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
+            seconds=Math.max(2,seconds);
+            prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
+            return seconds*1000L;
+        }catch(Exception e){
+            return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
+        }
+    }
+    private void stopAutoLogin(){
+        boolean wasRunning=autoLoginRunning;
+        autoLoginRunning=false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        if(wasRunning){
+            addActivityLog("AUTO LOGIN dihentikan.");
+            updateStatus("AUTO LOGIN dihentikan.");
+        }
+    }
 
-    private boolean copyAuth(Account account){DocumentFile target=getTree(KEY_TARGET);if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return false;}DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();return copyFile(account.file,target,AUTH_FILE);}
+    private boolean copyAuth(Account account){
+        DocumentFile target=getTree(KEY_TARGET);
+        if(!validDir(target)){
+            addActivityLog("COPY AUTH gagal: folder target belum dipilih.");
+            updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
+            return false;
+        }
+        DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();
+        boolean ok=copyFile(account.file,target,AUTH_FILE);
+        addActivityLog("COPY AUTH " + (ok ? "berhasil: " : "gagal: ") + account.category + " / " + account.name);
+        return ok;
+    }
     private boolean copyFile(DocumentFile source,DocumentFile parent,String name){DocumentFile dest=parent.findFile(name);if(dest!=null)dest.delete();dest=parent.createFile("application/octet-stream",name);if(dest==null)return false;try(InputStream in=getContentResolver().openInputStream(source.getUri());OutputStream out=getContentResolver().openOutputStream(dest.getUri(),"w")){if(in==null||out==null)throw new Exception("stream null");byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();return true;}catch(Exception e){dest.delete();return false;}}
-    private boolean launchGame(){Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);if(i==null){updateStatus("Package "+PACKAGE+" tidak ditemukan.");return false;}i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);startActivity(i);return true;}
+    private boolean launchGame(){
+        Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
+        if(i==null){
+            addActivityLog("Gagal membuka eFootball: package " + PACKAGE + " tidak ditemukan.");
+            updateStatus("Package "+PACKAGE+" tidak ditemukan.");
+            return false;
+        }
+        try {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            addActivityLog("Berhasil membuka eFootball.");
+            return true;
+        } catch(Exception e) {
+            addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
+            updateStatus("Gagal membuka eFootball.");
+            return false;
+        }
+    }
     private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
     private String getMode(){return prefs.getString(KEY_MODE,MODE_NONE);}
     private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
     private void updateStatus(String s){if(status!=null)status.setText(s);}
-    @Override protected void onDestroy(){stopAutoLogin();super.onDestroy();}
+    @Override protected void onDestroy(){saveAutoLoginDelay();stopAutoLogin();super.onDestroy();}
 
     static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
 }

@@ -2,7 +2,7 @@ name: Android Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/v1.2.9-activity-log ]
   workflow_dispatch:
 
 permissions:
@@ -72,8 +72,8 @@ jobs:
           s=open('app/build.gradle.kts').read()
           code=re.search(r'versionCode\s*=\s*(\d+)', s).group(1)
           name=re.search(r'versionName\s*=\s*"([^"]+)"', s).group(1)
-          assert code == '20', f'Expected versionCode 20, got {code}'
-          assert name == '1.2.8', f'Expected versionName 1.2.8, got {name}'
+          assert code == '21', f'Expected versionCode 21, got {code}'
+          assert name == '1.2.9', f'Expected versionName 1.2.9, got {name}'
           print(f'Version verified: {name} ({code})')
           PY
 
@@ -84,20 +84,21 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.2.8.apk
+          cp "$apk" eVault-v1.2.9.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.2.8
-          path: eVault-v1.2.8.apk
+          name: eVault-v1.2.9
+          path: eVault-v1.2.9.apk
           if-no-files-found: error
 
       - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.8
-          name: eVault v1.2.8
+          tag_name: v1.2.9
+          name: eVault v1.2.9
           generate_release_notes: true
           make_latest: true
-          files: eVault-v1.2.8.apk
+          files: eVault-v1.2.9.apk
