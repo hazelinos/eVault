@@ -2,7 +2,7 @@ name: Android Release
 
 on:
   push:
-    branches: [ main, feat/v1.3.0-activity-log ]
+    branches: [ main, feat/v1.3.0-resume-create-account ]
   workflow_dispatch:
 
 permissions:
