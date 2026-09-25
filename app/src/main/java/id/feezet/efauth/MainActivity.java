@@ -526,8 +526,18 @@ public class MainActivity extends AppCompatActivity {
 
     private void prepareCreate(DocumentFile root,int count) {
         String naming = prefs.getString(KEY_CREATE_NAMING, NAMING_NUMERIC);
-        List<String> names=buildAvailableNames(root,count,naming); if(names.size()!=count){updateStatus("Tidak cukup nama akun yang tersedia.");return;}
-        prefs.edit().putString(KEY_CREATE_NAMES,android.text.TextUtils.join("|",names)).putInt(KEY_CREATE_INDEX,0).apply(); setMode(MODE_CREATE); launchCurrentCreateAccount();
+        List<String> names=buildAvailableNames(root,count,naming);
+        if(names.size()!=count){
+            updateStatus("Tidak cukup nama akun yang tersedia.");
+            addActivityLog("CREATE ACCOUNT gagal: nama akun tidak cukup.");
+            return;
+        }
+        String resumeFrom = names.isEmpty() ? "-" : names.get(0);
+        addActivityLog("CREATE ACCOUNT target: " + prefs.getString(KEY_CREATE_CATEGORY, "AKUN"));
+        addActivityLog("CREATE ACCOUNT mode: " + naming + ", lanjut dari: " + resumeFrom + ", jumlah: " + count);
+        prefs.edit().putString(KEY_CREATE_NAMES,android.text.TextUtils.join("|",names)).putInt(KEY_CREATE_INDEX,0).apply();
+        setMode(MODE_CREATE);
+        launchCurrentCreateAccount();
     }
 
     private void launchCurrentCreateAccount() {
@@ -537,32 +547,84 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public static List<String> buildAvailableNames(DocumentFile root,int count,String naming) {
-        if (NAMING_LETTERED.equals(naming)) {
-            // Letters: 1-10, a1-a10, b1-10, ... z1-z10, then aa1-aa10 etc.
-            for(int round=0; round<27*27; round++){
-                String prefix = round==0 ? "" : toLetters(round);
-                ArrayList<String> candidates=new ArrayList<>();
-                boolean allFree=true;
-                for(int slot=1; slot<=count; slot++){
-                    String name=prefix+slot;
-                    if(root!=null&&root.findFile(name)!=null){allFree=false;break;}
-                    candidates.add(name);
-                }
-                if(allFree) return candidates;
+        if (count < 1) return Collections.emptyList();
+
+        // Resume from the actual highest existing account name in the selected category.
+        int startSequence = 0;
+        if (root != null) {
+            for (DocumentFile child : root.listFiles()) {
+                if (!child.isDirectory()) continue;
+                int seq = nameToSequence(nameOfStatic(child));
+                if (seq > startSequence) startSequence = seq;
             }
-            return Collections.emptyList();
         }
-        // Numeric: batch starting at 1, slots count per batch
-        for(int batch=1;batch<=1000000;batch++){
-            boolean allFree=true;ArrayList<String> candidates=new ArrayList<>();
-            for(int slot=1;slot<=count;slot++){
-                String name=batch+"-"+slot;
-                if(root!=null&&root.findFile(name)!=null){allFree=false;break;}
-                candidates.add(name);
+
+        ArrayList<String> result = new ArrayList<>();
+        int sequence = startSequence + 1;
+        int guard = 0;
+        while (result.size() < count && guard++ < 1000000) {
+            String name = sequenceToName(sequence, naming);
+            if (name == null) break;
+            if (root == null || root.findFile(name) == null) result.add(name);
+            sequence++;
+        }
+        return result;
+    }
+
+    private static String nameOfStatic(DocumentFile d) {
+        return d.getName() == null ? "" : d.getName();
+    }
+
+    private static int nameToSequence(String name) {
+        if (name == null || name.isEmpty()) return 0;
+
+        boolean numeric = true;
+        for (int i = 0; i < name.length(); i++) {
+            if (!Character.isDigit(name.charAt(i))) {
+                numeric = false;
+                break;
             }
-            if(allFree)return candidates;
         }
-        return Collections.emptyList();
+        if (numeric) {
+            try {
+                int value = Integer.parseInt(name);
+                return value > 0 ? value : 0;
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+
+        int split = 0;
+        while (split < name.length() && Character.isLetter(name.charAt(split))) split++;
+        if (split == 0 || split == name.length()) return 0;
+
+        String prefix = name.substring(0, split).toLowerCase(Locale.ROOT);
+        String suffix = name.substring(split);
+        int slot;
+        try {
+            slot = Integer.parseInt(suffix);
+        } catch (Exception ignored) {
+            return 0;
+        }
+        if (slot < 1 || slot > 10) return 0;
+
+        int prefixIndex = 0;
+        for (int i = 0; i < prefix.length(); i++) {
+            char ch = prefix.charAt(i);
+            if (ch < 'a' || ch > 'z') return 0;
+            prefixIndex = prefixIndex * 26 + (ch - 'a' + 1);
+        }
+        return prefixIndex * 10 + slot;
+    }
+
+    private static String sequenceToName(int sequence, String naming) {
+        if (sequence < 1) return null;
+        if (NAMING_NUMERIC.equals(naming)) return String.valueOf(sequence);
+
+        if (sequence <= 10) return String.valueOf(sequence);
+        int prefixNumber = (sequence - 1) / 10;
+        int slot = ((sequence - 1) % 10) + 1;
+        return toLetters(prefixNumber) + slot;
     }
 
     private static String toLetters(int n){StringBuilder sb=new StringBuilder();while(n>0){n--;sb.insert(0,(char)('a'+n%26));n/=26;}return sb.toString();}

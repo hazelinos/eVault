@@ -10,8 +10,8 @@ android {
         applicationId = "id.feezet.efauth"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "1.2.9"
+        versionCode = 22
+        versionName = "1.3.0"
     }
 
     signingConfigs {
