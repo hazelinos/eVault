@@ -2,7 +2,7 @@ name: Android Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/v1.2.9-activity-log ]
   workflow_dispatch:
 
 permissions:
@@ -94,6 +94,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.2.9
