@@ -91,5 +91,5 @@ jobs:
           name: eVault v1.3.1
           generate_release_notes: true
           make_latest: true
-          files: eVault-v1.3.0.apk
+          files: eVault-v1.3.1.apk
 # v1.3.1 release trigger checkpoint
