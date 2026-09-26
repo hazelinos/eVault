@@ -36,6 +36,7 @@ import java.util.List;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -50,6 +51,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_NAMING = "create_naming";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
+    private static final String KEY_LOGIN_VERIFIED = "login_verified";
+    private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
+    private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
+    private static final String KEY_AUTO_LOGIN_INDEX = "auto_login_index";
+    private static final String KEY_AUTO_LOGIN_PENDING = "auto_login_pending";
+    private static final String MODE_AUTO_LOGIN = "auto_login";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
     private static final int MAX_ACTIVITY_LOGS = 300;
     private static final String NAMING_NUMERIC = "numeric";
@@ -120,7 +127,11 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         if (!workflowLaunchPending) return;
         workflowLaunchPending = false;
-        if (MODE_CREATE.equals(getMode())) showCreateExitDialog();
+        if (MODE_CREATE.equals(getMode())) {
+            showCreateExitDialog();
+        } else if (MODE_AUTO_LOGIN.equals(getMode())) {
+            showAutoLoginConfirmationDialog();
+        }
     }
 
     private void buildUi() {
@@ -404,7 +415,16 @@ public class MainActivity extends AppCompatActivity {
                 if (category.isDirectory()) collectAccounts(category, nameOf(category));
             }
         }
-        Collections.sort(accounts, Comparator.comparing(a -> (a.category + "/" + a.name).toLowerCase()));
+        Collections.sort(accounts, (a, b) -> {
+            int categoryCompare = a.category.compareToIgnoreCase(b.category);
+            if (categoryCompare != 0) return categoryCompare;
+            int sa = nameToSequence(a.name);
+            int sb = nameToSequence(b.name);
+            if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
+            if (sa > 0 && sb <= 0) return -1;
+            if (sa <= 0 && sb > 0) return 1;
+            return a.name.compareToIgnoreCase(b.name);
+        });
         refreshAccountSpinner();
     }
 
@@ -712,22 +732,44 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startAutoLogin(){
-        addActivityLog("AUTO LOGIN dimulai.");
-        List<String> categories = getLibraryCategories();
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
+        List<String> categories = getLibraryCategories();
         if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
-        showCategoryPickerDialog(categories);
+
+        new AlertDialog.Builder(this)
+            .setTitle("AUTO LOGIN")
+            .setMessage("Pilih akun yang mau diproses:")
+            .setItems(new String[]{
+                "LOGIN SEMUA AKUN",
+                "LOGIN YANG BELUM LOGIN HARI INI"
+            }, (d, which) -> {
+                String mode = which == 0 ? "all" : "unverified";
+                prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
+                showCategoryPickerDialog(categories);
+            })
+            .setNegativeButton("BATAL", null)
+            .show();
     }
 
     private void showCategoryPickerDialog(final List<String> categories){
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(8), dp(8), dp(8), dp(8));
+        String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
         for (final String cat : categories) {
-            int count = 0;
-            for (Account a : accounts) if (a.category.equals(cat)) count++;
-            Button b = secondaryButton(cat + "  (" + count + ")", v -> startAutoLoginForCategory(cat));
+            int total = 0;
+            int verified = 0;
+            for (Account a : accounts) {
+                if (a.category.equals(cat)) {
+                    total++;
+                    if (isLoginVerifiedToday(a)) verified++;
+                }
+            }
+            int shown = "unverified".equals(mode) ? total - verified : total;
+            String label = cat + "  (" + shown + ("unverified".equals(mode) ? " belum login" : " akun") + ")";
+            Button b = secondaryButton(label, v -> startAutoLoginForCategory(cat));
             box.addView(b, spacedLp(dp(6)));
         }
         final AlertDialog dlg = new AlertDialog.Builder(this)
@@ -754,32 +796,160 @@ public class MainActivity extends AppCompatActivity {
         addActivityLog("Kategori AUTO LOGIN dipilih: " + category);
         clearWorkflow();
         autoLoginAccounts.clear();
-        for(Account a:accounts){ if(a.category.equals(category)) autoLoginAccounts.add(a); }
-        if(autoLoginAccounts.isEmpty()){updateStatus("Tidak ada akun di kategori: "+category);return;}
-        autoLoginRunning=true;autoLoginIndex=0;runNextAutoLogin();
+
+        String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
+        for(Account a : accounts){
+            if(!a.category.equals(category)) continue;
+            if("unverified".equals(mode) && isLoginVerifiedToday(a)) continue;
+            autoLoginAccounts.add(a);
+        }
+
+        Collections.sort(autoLoginAccounts, (a, b) -> {
+            int sa = nameToSequence(a.name);
+            int sb = nameToSequence(b.name);
+            if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
+            if (sa > 0 && sb <= 0) return -1;
+            if (sa <= 0 && sb > 0) return 1;
+            return a.name.compareToIgnoreCase(b.name);
+        });
+
+        if(autoLoginAccounts.isEmpty()){
+            updateStatus("✓ Semua akun " + category + " sudah login hari ini.");
+            addActivityLog("AUTO LOGIN tidak punya akun yang perlu diproses: " + category);
+            return;
+        }
+
+        autoLoginRunning=true;
+        autoLoginIndex=0;
+        prefs.edit()
+            .putString(KEY_AUTO_LOGIN_CATEGORY, category)
+            .putInt(KEY_AUTO_LOGIN_INDEX, 0)
+            .apply();
+        runNextAutoLogin();
     }
 
     private void runNextAutoLogin(){
-        if(!autoLoginRunning||autoLoginIndex>=autoLoginAccounts.size()){
+        if(!autoLoginRunning) return;
+        if(autoLoginIndex>=autoLoginAccounts.size()){
             int total = autoLoginAccounts.size();
             autoLoginRunning=false;
-            addActivityLog("AUTO LOGIN selesai. Total: " + total);
+            prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
+            addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
             updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
             return;
         }
+
         Account account=autoLoginAccounts.get(autoLoginIndex);
+        prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
-        if(!copyAuth(account)){autoLoginRunning=false;addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);return;}
-        boolean launched = launchGame();
-        if (!launched) {
-            addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
+
+        if(!copyAuth(account)){
             autoLoginRunning=false;
+            addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
+            updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
             return;
         }
-        autoLoginIndex++;
-        autoLoginHandler.postDelayed(this::runNextAutoLogin,getAutoLoginDelayMs());
+
+        if (!launchGame()) {
+            autoLoginRunning=false;
+            addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
+            return;
+        }
+
+        // onResume() will show the login confirmation when eFootball returns.
+        workflowLaunchPending=true;
+        setMode(MODE_AUTO_LOGIN);
     }
+
+    private void showAutoLoginConfirmationDialog(){
+        if(!autoLoginRunning || !MODE_AUTO_LOGIN.equals(getMode())) return;
+        Account account = findAutoLoginPendingAccount();
+        if(account == null){
+            addActivityLog("AUTO LOGIN error: akun pending tidak ditemukan.");
+            stopAutoLogin();
+            return;
+        }
+
+        updateStatus("Konfirmasi login: " + account.category + " / " + account.name);
+        new AlertDialog.Builder(this)
+            .setTitle("KONFIRMASI LOGIN")
+            .setMessage("Apakah akun " + account.name + " sudah berhasil login di eFootball?")
+            .setCancelable(false)
+            .setPositiveButton("LOGIN BERHASIL", (d,w) -> confirmAutoLoginSuccess(account))
+            .setNegativeButton("BELUM LOGIN", (d,w) -> retryAutoLogin(account))
+            .setNeutralButton("STOP", (d,w) -> stopAutoLogin())
+            .show();
+    }
+
+    private void confirmAutoLoginSuccess(Account account){
+        markLoginVerifiedToday(account);
+        addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
+        advanceAutoLoginAfterDelay(account, false);
+    }
+
+    private void retryAutoLogin(Account account){
+        addActivityLog("LOGIN BELUM BERHASIL: " + account.category + " / " + account.name);
+        updateStatus("Login belum terverifikasi: " + account.name + ". Menunggu delay sebelum coba lagi.");
+        advanceAutoLoginAfterDelay(account, true);
+    }
+
+    private void advanceAutoLoginAfterDelay(Account account, boolean retrySame){
+        if(!autoLoginRunning) return;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        autoLoginHandler.postDelayed(() -> {
+            if(!autoLoginRunning) return;
+            if(retrySame){
+                runNextAutoLogin();
+            } else {
+                autoLoginIndex++;
+                prefs.edit().putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
+                runNextAutoLogin();
+            }
+        }, getAutoLoginDelayMs());
+    }
+
+    private Account findAutoLoginPendingAccount(){
+        String key = prefs.getString(KEY_AUTO_LOGIN_PENDING, null);
+        if(key == null) return null;
+        for(Account a : accounts) if(accountKey(a).equals(key)) return a;
+        return null;
+    }
+
+    private String accountKey(Account account){
+        return account.category + "\u001F" + account.name;
+    }
+
+    private String utcDate(){
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        format.setTimeZone(TimeZone.getTimeZone("UTC"));
+        return format.format(new Date());
+    }
+
+    private boolean isLoginVerifiedToday(Account account){
+        String today = utcDate();
+        String key = accountKey(account) + "\u001F" + today;
+        java.util.Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        return verified != null && verified.contains(key);
+    }
+
+    private void markLoginVerifiedToday(Account account){
+        String key = accountKey(account) + "\u001F" + utcDate();
+        java.util.Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        java.util.HashSet<String> updated = new java.util.HashSet<>();
+        if(old != null) updated.addAll(old);
+        // Keep today's records plus recent entries; stale records are harmless but pruned here.
+        String today = utcDate();
+        java.util.Iterator<String> it = updated.iterator();
+        while(it.hasNext()){
+            String entry = it.next();
+            int split = entry.lastIndexOf("\u001F");
+            if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
+        }
+        updated.add(key);
+        prefs.edit().putStringSet(KEY_LOGIN_VERIFIED, updated).apply();
+    }
+
     private long getAutoLoginDelayMs(){
         try{
             int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
@@ -790,10 +960,14 @@ public class MainActivity extends AppCompatActivity {
             return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
         }
     }
+
     private void stopAutoLogin(){
         boolean wasRunning=autoLoginRunning;
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
+        workflowLaunchPending=false;
+        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
         if(wasRunning){
             addActivityLog("AUTO LOGIN dihentikan.");
             updateStatus("AUTO LOGIN dihentikan.");
@@ -837,7 +1011,7 @@ public class MainActivity extends AppCompatActivity {
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
     private void updateStatus(String s){if(status!=null)status.setText(s);}
-    @Override protected void onDestroy(){saveAutoLoginDelay();stopAutoLogin();super.onDestroy();}
+    @Override protected void onDestroy(){saveAutoLoginDelay(); if(!isChangingConfigurations()) stopAutoLogin(); super.onDestroy();}
 
     static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
 }
