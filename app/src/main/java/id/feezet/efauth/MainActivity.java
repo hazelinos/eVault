@@ -123,15 +123,68 @@ public class MainActivity extends AppCompatActivity {
         loadAccounts();
     }
 
+    private boolean createResumeDialogShown = false;
+
     @Override protected void onResume() {
         super.onResume();
-        if (!workflowLaunchPending) return;
-        workflowLaunchPending = false;
-        if (MODE_CREATE.equals(getMode())) {
-            showCreateExitDialog();
-        } else if (MODE_AUTO_LOGIN.equals(getMode())) {
-            showAutoLoginConfirmationDialog();
+
+        if (workflowLaunchPending) {
+            workflowLaunchPending = false;
+            if (MODE_CREATE.equals(getMode())) {
+                showCreateExitDialog();
+            } else if (MODE_AUTO_LOGIN.equals(getMode())) {
+                showAutoLoginConfirmationDialog();
+            }
+            return;
         }
+
+        // If eVault was closed/restarted while Create Account was in progress,
+        // restore the saved progress instead of starting from the beginning.
+        if (MODE_CREATE.equals(getMode())
+                && !createResumeDialogShown
+                && hasPendingCreateWorkflow()) {
+            createResumeDialogShown = true;
+            showCreateResumeDialog();
+        }
+    }
+
+    private boolean hasPendingCreateWorkflow() {
+        List<String> names = split(prefs.getString(KEY_CREATE_NAMES, ""));
+        int index = prefs.getInt(KEY_CREATE_INDEX, 0);
+        return !names.isEmpty() && index >= 0 && index < names.size();
+    }
+
+    private void showCreateResumeDialog() {
+        List<String> names = split(prefs.getString(KEY_CREATE_NAMES, ""));
+        int index = prefs.getInt(KEY_CREATE_INDEX, 0);
+        String category = prefs.getString(KEY_CREATE_CATEGORY, "AKUN");
+        if (names.isEmpty() || index < 0 || index >= names.size()) {
+            createResumeDialogShown = false;
+            return;
+        }
+
+        String current = names.get(index);
+        int total = names.size();
+
+        addActivityLog("CREATE ACCOUNT resume tersedia: [" + (index + 1) + "/" + total + "] "
+                + current + " (" + category + ")");
+
+        new AlertDialog.Builder(this)
+            .setTitle("LANJUTKAN BUAT AKUN?")
+            .setMessage("Progress: " + (index + 1) + "/" + total
+                    + "\nAkun berikutnya: " + current
+                    + "\nKategori: " + category)
+            .setCancelable(false)
+            .setPositiveButton("LANJUTKAN", (d, w) -> {
+                createResumeDialogShown = false;
+                addActivityLog("CREATE ACCOUNT dilanjutkan dari: " + current);
+                launchCurrentCreateAccount();
+            })
+            .setNegativeButton("NANTI", (d, w) -> {
+                createResumeDialogShown = false;
+                updateStatus("CREATE ACCOUNT tersimpan. Berikutnya: " + current);
+            })
+            .show();
     }
 
     private void buildUi() {
