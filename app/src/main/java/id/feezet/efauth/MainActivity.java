@@ -56,9 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
     private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
-    private static final String KEY_CLOUD_URL = "cloud_url";
-    private static final String KEY_CLOUD_API_KEY = "cloud_api_key";
     private static final String KEY_CLOUD_DEVICE_ID = "cloud_device_id";
+    private static final String KEY_CLOUD_DEVICE_TOKEN = "cloud_device_token";
+    private static final String KEY_CLOUD_TELEGRAM = "cloud_telegram";
+    private static final String CLOUD_BASE_URL = BuildConfig.EVAULT_CLOUD_URL;
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -239,7 +240,7 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(target, spacedLp(dp(10)));
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
-        Button cloudBtn = secondaryButton("☁️ EVAULT CLOUD", v -> showCloudSettingsDialog());
+        Button cloudBtn = secondaryButton("☁️ SAMBUNGKAN TELEGRAM", v -> showCloudSettingsDialog());
         setupCard.addView(cloudBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
@@ -985,8 +986,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean cloudConfigured() {
-        return !prefs.getString(KEY_CLOUD_URL, "").trim().isEmpty()
-                && !prefs.getString(KEY_CLOUD_API_KEY, "").trim().isEmpty();
+        return !CLOUD_BASE_URL.trim().isEmpty()
+                && !prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim().isEmpty();
     }
 
     private String cloudDeviceId() {
@@ -998,59 +999,88 @@ public class MainActivity extends AppCompatActivity {
         return id;
     }
 
+    private String cloudDeviceToken() {
+        return prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim();
+    }
+
     private void showCloudSettingsDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), dp(4), dp(8), dp(4));
+        String token = cloudDeviceToken();
+        String telegram = prefs.getString(KEY_CLOUD_TELEGRAM, "").trim();
 
-        EditText url = new EditText(this);
-        url.setHint("https://domain-api-lu.up.railway.app");
-        url.setSingleLine(true);
-        url.setText(prefs.getString(KEY_CLOUD_URL, ""));
-        styleInput(url);
+        if (!token.isEmpty()) {
+            new AlertDialog.Builder(this)
+                .setTitle("☁️ EVAULT CLOUD")
+                .setMessage("Status: 🟢 Terhubung"
+                        + (telegram.isEmpty() ? "" : "\nTelegram: @" + telegram)
+                        + "\nDevice: " + cloudDeviceId())
+                .setNegativeButton("TUTUP", null)
+                .setPositiveButton("PUTUSKAN TELEGRAM", (d, w) -> {
+                    prefs.edit()
+                        .remove(KEY_CLOUD_DEVICE_TOKEN)
+                        .remove(KEY_CLOUD_TELEGRAM)
+                        .apply();
+                    updateStatus("Telegram eVault Cloud diputuskan.");
+                })
+                .show();
+            return;
+        }
 
-        EditText key = new EditText(this);
-        key.setHint("EVAULT_API_KEY");
-        key.setSingleLine(true);
-        key.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        key.setText(prefs.getString(KEY_CLOUD_API_KEY, ""));
-        styleInput(key);
+        if (CLOUD_BASE_URL.trim().isEmpty()) {
+            updateStatus("eVault Cloud belum dikonfigurasi.");
+            return;
+        }
 
-        box.addView(url, spacedLp(dp(4)));
-        box.addView(key, spacedLp(dp(10)));
+        final String deviceId = cloudDeviceId();
+        updateStatus("☁️ Membuat koneksi Telegram...");
+        cloudExecutor.execute(() -> {
+            try {
+                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                CloudApi.PairSession session = CloudApi.startPairing(
+                        CLOUD_BASE_URL, deviceId, "eVault " + Build.MODEL, Build.MODEL, version);
 
-        new AlertDialog.Builder(this)
-            .setTitle("☁️ EVAULT CLOUD")
-            .setMessage("Hubungkan eVault ke Cloud Storage.")
-            .setView(box)
-            .setNegativeButton("BATAL", null)
-            .setNeutralButton("HAPUS", (d,w) -> {
-                prefs.edit().remove(KEY_CLOUD_URL).remove(KEY_CLOUD_API_KEY).apply();
-                updateStatus("Cloud eVault dilepas.");
-            })
-            .setPositiveButton("SIMPAN & TEST", (d,w) -> {
-                String baseUrl = url.getText().toString().trim();
-                String apiKey = key.getText().toString().trim();
-                if (baseUrl.isEmpty() || apiKey.isEmpty()) {
-                    updateStatus("URL Cloud dan API key wajib diisi.");
-                    return;
+                runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(session.botUrl));
+                        startActivity(intent);
+                        updateStatus("Telegram dibuka. Tekan HUBUNGKAN EVAULT di bot.");
+                    } catch (Exception e) {
+                        updateStatus("Gagal membuka Telegram: " + e.getMessage());
+                    }
+                });
+
+                long deadline = System.currentTimeMillis() + 5 * 60 * 1000L;
+                while (System.currentTimeMillis() < deadline) {
+                    Thread.sleep(1500);
+                    CloudApi.PairStatus status = CloudApi.pairStatus(CLOUD_BASE_URL, session.sessionId);
+                    if ("PAIRED".equals(status.status) && !status.token.isEmpty()) {
+                        prefs.edit()
+                            .putString(KEY_CLOUD_DEVICE_TOKEN, status.token)
+                            .putString(KEY_CLOUD_TELEGRAM, status.telegramUsername)
+                            .apply();
+                        registerCloudDeviceAsync();
+                        addActivityLog("CLOUD Telegram terhubung: @" + status.telegramUsername);
+                        runOnUiThread(() -> updateStatus("✓ Telegram terhubung ke eVault Cloud."));
+                        return;
+                    }
+                    if ("EXPIRED".equals(status.status)) break;
                 }
-                prefs.edit().putString(KEY_CLOUD_URL, baseUrl).putString(KEY_CLOUD_API_KEY, apiKey).apply();
-                updateStatus("Menghubungkan ke eVault Cloud...");
-                registerCloudDeviceAsync();
-            })
-            .show();
+
+                runOnUiThread(() -> updateStatus("Pairing Telegram kedaluwarsa. Coba lagi."));
+            } catch (Exception e) {
+                addActivityLog("CLOUD pairing gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud pairing gagal: " + e.getMessage()));
+            }
+        });
     }
 
     private void registerCloudDeviceAsync() {
         if (prefs == null || !cloudConfigured()) return;
-        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
-        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        final String deviceToken = cloudDeviceToken();
         final String deviceId = cloudDeviceId();
         cloudExecutor.execute(() -> {
             try {
                 String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-                CloudApi.registerDevice(baseUrl, apiKey, deviceId,
+                CloudApi.registerDevice(CLOUD_BASE_URL, deviceToken, deviceId,
                         "eVault " + Build.MODEL, Build.MODEL, version);
                 addActivityLog("CLOUD device terhubung: " + deviceId);
                 runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
@@ -1074,12 +1104,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void uploadAuthToCloudAsync(final String category, final String name, final DocumentFile auth) {
         if (!cloudConfigured() || auth == null || !auth.isFile()) return;
-        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
-        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        final String deviceToken = cloudDeviceToken();
         final String deviceId = cloudDeviceId();
         cloudExecutor.execute(() -> {
             try {
-                CloudApi.uploadAuth(baseUrl, apiKey, deviceId, category, name, readDocumentFile(auth));
+                CloudApi.uploadAuth(CLOUD_BASE_URL, deviceToken, deviceId, category, name, readDocumentFile(auth));
                 addActivityLog("CLOUD upload berhasil: " + category + " / " + name);
                 runOnUiThread(() -> updateStatus("✓ AUTH tersimpan lokal + cloud: " + category + " / " + name));
             } catch (Exception e) {
@@ -1091,7 +1120,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void syncCloudToLibrary() {
         if (!cloudConfigured()) {
-            updateStatus("Atur EVAULT CLOUD terlebih dahulu.");
+            updateStatus("Hubungkan Telegram terlebih dahulu.");
             showCloudSettingsDialog();
             return;
         }
@@ -1101,12 +1130,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
-        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        final String deviceToken = cloudDeviceToken();
         updateStatus("☁️ Mengambil daftar AUTH cloud...");
         cloudExecutor.execute(() -> {
             try {
-                List<CloudApi.CloudFile> files = CloudApi.library(baseUrl, apiKey);
+                List<CloudApi.CloudFile> files = CloudApi.library(CLOUD_BASE_URL, deviceToken);
                 int downloaded = 0, skipped = 0;
                 for (CloudApi.CloudFile file : files) {
                     DocumentFile category = categoryRoot(library, file.category);
@@ -1119,7 +1147,7 @@ public class MainActivity extends AppCompatActivity {
                         skipped++;
                         continue;
                     }
-                    byte[] auth = CloudApi.downloadAuth(baseUrl, apiKey, file.category, file.account);
+                    byte[] auth = CloudApi.downloadAuth(CLOUD_BASE_URL, deviceToken, file.category, file.account);
                     DocumentFile out = account.createFile("application/octet-stream", AUTH_FILE);
                     if (out == null) continue;
                     try (OutputStream stream = getContentResolver().openOutputStream(out.getUri())) {
