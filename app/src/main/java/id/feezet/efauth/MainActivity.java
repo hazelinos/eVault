@@ -1037,7 +1037,15 @@ public class MainActivity extends AppCompatActivity {
     private void confirmAutoLoginSuccess(Account account){
         markLoginVerifiedToday(account);
         addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
-        advanceAutoLoginAfterDelay(account, false);
+        updateStatus("✓ " + account.name + " tercatat sudah login hari ini.");
+
+        new AlertDialog.Builder(this)
+            .setTitle("LANJUT AUTO LOGIN?")
+            .setMessage("Akun " + account.name + " sudah berhasil login dan tercatat hari ini.\n\nLanjut ke akun berikutnya?")
+            .setCancelable(false)
+            .setNegativeButton("STOP", (d, w) -> stopAutoLogin())
+            .setPositiveButton("LANJUT", (d, w) -> advanceAutoLoginAfterDelay(account, false))
+            .show();
     }
 
     private void retryAutoLogin(Account account){
