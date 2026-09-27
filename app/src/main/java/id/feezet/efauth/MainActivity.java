@@ -953,7 +953,8 @@ public class MainActivity extends AppCompatActivity {
         Account account=autoLoginAccounts.get(autoLoginIndex);
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
-        updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);\n        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
+        updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
+        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
 
         if(!copyAuth(account)){
             autoLoginRunning=false;
