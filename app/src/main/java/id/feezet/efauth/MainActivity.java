@@ -787,6 +787,45 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
+    private void showDiscordWebhookDialog(){
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("https://discord.com/api/webhooks/...");
+        input.setText(prefs.getString(KEY_DISCORD_WEBHOOK, ""));
+        styleInput(input);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(8), dp(8), dp(4));
+        box.addView(input, fullLp());
+
+        new AlertDialog.Builder(this)
+            .setTitle("DISCORD WEBHOOK")
+            .setMessage("Masukkan URL webhook Discord untuk menerima notifikasi eVault.")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setNeutralButton("HAPUS", (d, w) -> {
+                prefs.edit().remove(KEY_DISCORD_WEBHOOK).apply();
+                updateStatus("Discord webhook dihapus.");
+            })
+            .setPositiveButton("SIMPAN & TEST", (d, w) -> {
+                String url = input.getText().toString().trim();
+                if (!DiscordWebhook.isValidUrl(url)) {
+                    updateStatus("URL Discord webhook tidak valid.");
+                    return;
+                }
+                prefs.edit().putString(KEY_DISCORD_WEBHOOK, url).apply();
+                updateStatus("Mengirim test webhook...");
+                notifyDiscord("🔔 **eVault**\nWebhook berhasil terhubung.");
+            })
+            .show();
+    }
+
+    private void notifyDiscord(String message){
+        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "").trim();
+        if (!url.isEmpty()) DiscordWebhook.send(url, message);
+    }
+
     private void startAutoLogin(){
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
