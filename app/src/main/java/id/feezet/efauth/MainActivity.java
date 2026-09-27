@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -37,6 +38,9 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -52,6 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
     private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
+    private static final String KEY_CLOUD_DEVICE_ID = "cloud_device_id";
+    private static final String KEY_CLOUD_DEVICE_TOKEN = "cloud_device_token";
+    private static final String KEY_CLOUD_TELEGRAM = "cloud_telegram";
+    private static final String CLOUD_BASE_URL = BuildConfig.EVAULT_CLOUD_URL;
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -80,6 +88,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
     private String accountFilter = "";
+    private final ExecutorService cloudExecutor = Executors.newSingleThreadExecutor();
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -122,6 +131,7 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         buildUi();
         loadAccounts();
+        registerCloudDeviceAsync();
     }
 
     private boolean createResumeDialogShown = false;
@@ -230,6 +240,8 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(target, spacedLp(dp(10)));
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
+        Button cloudBtn = secondaryButton("☁️ SAMBUNGKAN TELEGRAM", v -> showCloudSettingsDialog());
+        setupCard.addView(cloudBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -288,6 +300,12 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams row1Lp = fullLp();
         row1Lp.bottomMargin = dp(8);
         root.addView(row1, row1Lp);
+
+        // Cloud sync
+        Button cloudSyncBtn = secondaryButton("☁️ SYNC CLOUD", v -> syncCloudToLibrary());
+        LinearLayout.LayoutParams cloudSyncLp = fullLp();
+        cloudSyncLp.bottomMargin = dp(8);
+        root.addView(cloudSyncBtn, cloudSyncLp);
 
         // Actions row 3: SIMPAN AUTH
         Button saveAuthBtn = secondaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
@@ -719,7 +737,7 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton("SIMPAN",(d,w)->{
                     DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
                     DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
-                    if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
+                    if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}uploadAuthToCloudAsync(prefs.getString(KEY_CREATE_CATEGORY,"AKUN"), current, folder.findFile(AUTH_FILE));auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
                 }).show();
     }
 
@@ -965,6 +983,190 @@ public class MainActivity extends AppCompatActivity {
         updateStatus("✓ AUTH berhasil disimpan: " + category + " / " + name);
         addActivityLog("SAVE AUTH berhasil: " + category + " / " + name);
         notifyDiscord("💾 **AUTH DISIMPAN**\\nKategori: **" + category + "**\\nAkun: **" + name + "**");
+    }
+
+    private boolean cloudConfigured() {
+        return !CLOUD_BASE_URL.trim().isEmpty()
+                && !prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim().isEmpty();
+    }
+
+    private String cloudDeviceId() {
+        String id = prefs.getString(KEY_CLOUD_DEVICE_ID, "").trim();
+        if (id.isEmpty()) {
+            id = "evault-" + UUID.randomUUID().toString();
+            prefs.edit().putString(KEY_CLOUD_DEVICE_ID, id).apply();
+        }
+        return id;
+    }
+
+    private String cloudDeviceToken() {
+        return prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim();
+    }
+
+    private void showCloudSettingsDialog() {
+        String token = cloudDeviceToken();
+        String telegram = prefs.getString(KEY_CLOUD_TELEGRAM, "").trim();
+
+        if (!token.isEmpty()) {
+            new AlertDialog.Builder(this)
+                .setTitle("☁️ EVAULT CLOUD")
+                .setMessage("Status: 🟢 Terhubung"
+                        + (telegram.isEmpty() ? "" : "\nTelegram: @" + telegram)
+                        + "\nDevice: " + cloudDeviceId())
+                .setNegativeButton("TUTUP", null)
+                .setPositiveButton("PUTUSKAN TELEGRAM", (d, w) -> {
+                    prefs.edit()
+                        .remove(KEY_CLOUD_DEVICE_TOKEN)
+                        .remove(KEY_CLOUD_TELEGRAM)
+                        .apply();
+                    updateStatus("Telegram eVault Cloud diputuskan.");
+                })
+                .show();
+            return;
+        }
+
+        if (CLOUD_BASE_URL.trim().isEmpty()) {
+            updateStatus("eVault Cloud belum dikonfigurasi.");
+            return;
+        }
+
+        final String deviceId = cloudDeviceId();
+        updateStatus("☁️ Membuat koneksi Telegram...");
+        cloudExecutor.execute(() -> {
+            try {
+                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                CloudApi.PairSession session = CloudApi.startPairing(
+                        CLOUD_BASE_URL, deviceId, "eVault " + Build.MODEL, Build.MODEL, version);
+
+                runOnUiThread(() -> {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(session.botUrl));
+                        startActivity(intent);
+                        updateStatus("Telegram dibuka. Tekan HUBUNGKAN EVAULT di bot.");
+                    } catch (Exception e) {
+                        updateStatus("Gagal membuka Telegram: " + e.getMessage());
+                    }
+                });
+
+                long deadline = System.currentTimeMillis() + 5 * 60 * 1000L;
+                while (System.currentTimeMillis() < deadline) {
+                    Thread.sleep(1500);
+                    CloudApi.PairStatus status = CloudApi.pairStatus(CLOUD_BASE_URL, session.sessionId);
+                    if ("PAIRED".equals(status.status) && !status.token.isEmpty()) {
+                        prefs.edit()
+                            .putString(KEY_CLOUD_DEVICE_TOKEN, status.token)
+                            .putString(KEY_CLOUD_TELEGRAM, status.telegramUsername)
+                            .apply();
+                        registerCloudDeviceAsync();
+                        addActivityLog("CLOUD Telegram terhubung: @" + status.telegramUsername);
+                        runOnUiThread(() -> updateStatus("✓ Telegram terhubung ke eVault Cloud."));
+                        return;
+                    }
+                    if ("EXPIRED".equals(status.status)) break;
+                }
+
+                runOnUiThread(() -> updateStatus("Pairing Telegram kedaluwarsa. Coba lagi."));
+            } catch (Exception e) {
+                addActivityLog("CLOUD pairing gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud pairing gagal: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void registerCloudDeviceAsync() {
+        if (prefs == null || !cloudConfigured()) return;
+        final String deviceToken = cloudDeviceToken();
+        final String deviceId = cloudDeviceId();
+        cloudExecutor.execute(() -> {
+            try {
+                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                CloudApi.registerDevice(CLOUD_BASE_URL, deviceToken, deviceId,
+                        "eVault " + Build.MODEL, Build.MODEL, version);
+                addActivityLog("CLOUD device terhubung: " + deviceId);
+                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
+            } catch (Exception e) {
+                addActivityLog("CLOUD koneksi gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud gagal terhubung: " + e.getMessage()));
+            }
+        });
+    }
+
+    private byte[] readDocumentFile(DocumentFile file) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(file.getUri());
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            if (in == null) throw new Exception("Gagal membaca AUTH.");
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            return out.toByteArray();
+        }
+    }
+
+    private void uploadAuthToCloudAsync(final String category, final String name, final DocumentFile auth) {
+        if (!cloudConfigured() || auth == null || !auth.isFile()) return;
+        final String deviceToken = cloudDeviceToken();
+        final String deviceId = cloudDeviceId();
+        cloudExecutor.execute(() -> {
+            try {
+                CloudApi.uploadAuth(CLOUD_BASE_URL, deviceToken, deviceId, category, name, readDocumentFile(auth));
+                addActivityLog("CLOUD upload berhasil: " + category + " / " + name);
+                runOnUiThread(() -> updateStatus("✓ AUTH tersimpan lokal + cloud: " + category + " / " + name));
+            } catch (Exception e) {
+                addActivityLog("CLOUD upload gagal: " + category + " / " + name + " — " + e.getMessage());
+                runOnUiThread(() -> updateStatus("AUTH lokal tersimpan, cloud gagal: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void syncCloudToLibrary() {
+        if (!cloudConfigured()) {
+            updateStatus("Hubungkan Telegram terlebih dahulu.");
+            showCloudSettingsDialog();
+            return;
+        }
+        DocumentFile library = getTree(KEY_LIBRARY);
+        if (!validDir(library)) {
+            updateStatus("Pilih AUTH Library terlebih dahulu.");
+            return;
+        }
+
+        final String deviceToken = cloudDeviceToken();
+        updateStatus("☁️ Mengambil daftar AUTH cloud...");
+        cloudExecutor.execute(() -> {
+            try {
+                List<CloudApi.CloudFile> files = CloudApi.library(CLOUD_BASE_URL, deviceToken);
+                int downloaded = 0, skipped = 0;
+                for (CloudApi.CloudFile file : files) {
+                    DocumentFile category = categoryRoot(library, file.category);
+                    if (!validDir(category)) continue;
+                    DocumentFile account = category.findFile(file.account);
+                    if (account == null) account = category.createDirectory(file.account);
+                    if (!validDir(account)) continue;
+                    DocumentFile existing = account.findFile(AUTH_FILE);
+                    if (existing != null && existing.isFile()) {
+                        skipped++;
+                        continue;
+                    }
+                    byte[] auth = CloudApi.downloadAuth(CLOUD_BASE_URL, deviceToken, file.category, file.account);
+                    DocumentFile out = account.createFile("application/octet-stream", AUTH_FILE);
+                    if (out == null) continue;
+                    try (OutputStream stream = getContentResolver().openOutputStream(out.getUri())) {
+                        if (stream == null) throw new Exception("Gagal membuka file target.");
+                        stream.write(auth);
+                    }
+                    downloaded++;
+                    addActivityLog("CLOUD download berhasil: " + file.category + " / " + file.account);
+                }
+                int finalDownloaded = downloaded, finalSkipped = skipped;
+                runOnUiThread(() -> {
+                    loadAccounts();
+                    updateStatus("✓ Cloud sync selesai. Download: " + finalDownloaded + ", sudah ada: " + finalSkipped);
+                });
+            } catch (Exception e) {
+                addActivityLog("CLOUD sync gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud sync gagal: " + e.getMessage()));
+            }
+        });
     }
 
     private void startAutoLogin(){
