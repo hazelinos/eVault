@@ -825,8 +825,7 @@ public class MainActivity extends AppCompatActivity {
             box.addView(b, spacedLp(dp(6)));
         }
         final AlertDialog dlg = new AlertDialog.Builder(this)
-            .setTitle("AUTO LOGIN")
-            .setMessage("Pilih kategori akun untuk auto login:")
+            .setTitle("PILIH KATEGORI")
             .setView(box)
             .setNegativeButton("BATAL", null)
             .create();
