@@ -51,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_NAMING = "create_naming";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
+    private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -227,6 +228,8 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(library, spacedLp(dp(4)));
         Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
         setupCard.addView(target, spacedLp(dp(10)));
+        Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
+        setupCard.addView(webhookBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -877,6 +880,7 @@ public class MainActivity extends AppCompatActivity {
 
         autoLoginRunning=true;
         autoLoginIndex=0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + category + "**\nAkun: **" + autoLoginAccounts.size() + "**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_CATEGORY, category)
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
@@ -923,6 +927,7 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.add(account);
         autoLoginRunning = true;
         autoLoginIndex = 0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + account.category + "**\nAkun: **1**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_MODE, "single")
             .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
@@ -941,18 +946,20 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
             addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
             updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
+            notifyDiscord("✅ **AUTO LOGIN SELESAI**\nDiproses: **"+total+"/"+total+"**");
             return;
         }
 
         Account account=autoLoginAccounts.get(autoLoginIndex);
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
-        updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
+        updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);\n        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\nAkun: **"+account.name+"**");
 
         if(!copyAuth(account)){
             autoLoginRunning=false;
             addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
             updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
+            notifyDiscord("❌ **AUTO LOGIN GAGAL**\nAkun: **" + account.name + "**\nPenyebab: COPY AUTH gagal.");
             return;
         }
 
@@ -1076,6 +1083,7 @@ public class MainActivity extends AppCompatActivity {
         if(wasRunning){
             addActivityLog("AUTO LOGIN dihentikan.");
             updateStatus("AUTO LOGIN dihentikan.");
+            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
         }
     }
 
@@ -1103,6 +1111,7 @@ public class MainActivity extends AppCompatActivity {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             addActivityLog("Berhasil membuka eFootball.");
+            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
             return true;
         } catch(Exception e) {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
