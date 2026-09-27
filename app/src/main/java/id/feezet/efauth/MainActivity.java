@@ -10,6 +10,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -37,6 +38,9 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -52,6 +56,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
     private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
+    private static final String KEY_CLOUD_URL = "cloud_url";
+    private static final String KEY_CLOUD_API_KEY = "cloud_api_key";
+    private static final String KEY_CLOUD_DEVICE_ID = "cloud_device_id";
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -80,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
     private String accountFilter = "";
+    private final ExecutorService cloudExecutor = Executors.newSingleThreadExecutor();
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -122,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         buildUi();
         loadAccounts();
+        registerCloudDeviceAsync();
     }
 
     private boolean createResumeDialogShown = false;
@@ -230,6 +239,8 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(target, spacedLp(dp(10)));
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
+        Button cloudBtn = secondaryButton("☁️ EVAULT CLOUD", v -> showCloudSettingsDialog());
+        setupCard.addView(cloudBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -288,6 +299,12 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams row1Lp = fullLp();
         row1Lp.bottomMargin = dp(8);
         root.addView(row1, row1Lp);
+
+        // Cloud sync
+        Button cloudSyncBtn = secondaryButton("☁️ SYNC CLOUD", v -> syncCloudToLibrary());
+        LinearLayout.LayoutParams cloudSyncLp = fullLp();
+        cloudSyncLp.bottomMargin = dp(8);
+        root.addView(cloudSyncBtn, cloudSyncLp);
 
         // Actions row 3: SIMPAN AUTH
         Button saveAuthBtn = secondaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
@@ -965,6 +982,163 @@ public class MainActivity extends AppCompatActivity {
         updateStatus("✓ AUTH berhasil disimpan: " + category + " / " + name);
         addActivityLog("SAVE AUTH berhasil: " + category + " / " + name);
         notifyDiscord("💾 **AUTH DISIMPAN**\\nKategori: **" + category + "**\\nAkun: **" + name + "**");
+    }
+
+    private boolean cloudConfigured() {
+        return !prefs.getString(KEY_CLOUD_URL, "").trim().isEmpty()
+                && !prefs.getString(KEY_CLOUD_API_KEY, "").trim().isEmpty();
+    }
+
+    private String cloudDeviceId() {
+        String id = prefs.getString(KEY_CLOUD_DEVICE_ID, "").trim();
+        if (id.isEmpty()) {
+            id = "evault-" + UUID.randomUUID().toString();
+            prefs.edit().putString(KEY_CLOUD_DEVICE_ID, id).apply();
+        }
+        return id;
+    }
+
+    private void showCloudSettingsDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(4), dp(8), dp(4));
+
+        EditText url = new EditText(this);
+        url.setHint("https://domain-api-lu.up.railway.app");
+        url.setSingleLine(true);
+        url.setText(prefs.getString(KEY_CLOUD_URL, ""));
+        styleInput(url);
+
+        EditText key = new EditText(this);
+        key.setHint("EVAULT_API_KEY");
+        key.setSingleLine(true);
+        key.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setText(prefs.getString(KEY_CLOUD_API_KEY, ""));
+        styleInput(key);
+
+        box.addView(url, spacedLp(dp(4)));
+        box.addView(key, spacedLp(dp(10)));
+
+        new AlertDialog.Builder(this)
+            .setTitle("☁️ EVAULT CLOUD")
+            .setMessage("Hubungkan eVault ke Cloud Storage.")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setNeutralButton("HAPUS", (d,w) -> {
+                prefs.edit().remove(KEY_CLOUD_URL).remove(KEY_CLOUD_API_KEY).apply();
+                updateStatus("Cloud eVault dilepas.");
+            })
+            .setPositiveButton("SIMPAN & TEST", (d,w) -> {
+                String baseUrl = url.getText().toString().trim();
+                String apiKey = key.getText().toString().trim();
+                if (baseUrl.isEmpty() || apiKey.isEmpty()) {
+                    updateStatus("URL Cloud dan API key wajib diisi.");
+                    return;
+                }
+                prefs.edit().putString(KEY_CLOUD_URL, baseUrl).putString(KEY_CLOUD_API_KEY, apiKey).apply();
+                updateStatus("Menghubungkan ke eVault Cloud...");
+                registerCloudDeviceAsync();
+            })
+            .show();
+    }
+
+    private void registerCloudDeviceAsync() {
+        if (prefs == null || !cloudConfigured()) return;
+        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
+        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        final String deviceId = cloudDeviceId();
+        cloudExecutor.execute(() -> {
+            try {
+                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                CloudApi.registerDevice(baseUrl, apiKey, deviceId,
+                        "eVault " + Build.MODEL, Build.MODEL, version);
+                addActivityLog("CLOUD device terhubung: " + deviceId);
+                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
+            } catch (Exception e) {
+                addActivityLog("CLOUD koneksi gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud gagal terhubung: " + e.getMessage()));
+            }
+        });
+    }
+
+    private byte[] readDocumentFile(DocumentFile file) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(file.getUri());
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            if (in == null) throw new Exception("Gagal membaca AUTH.");
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            return out.toByteArray();
+        }
+    }
+
+    private void uploadAuthToCloudAsync(final String category, final String name, final DocumentFile auth) {
+        if (!cloudConfigured() || auth == null || !auth.isFile()) return;
+        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
+        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        final String deviceId = cloudDeviceId();
+        cloudExecutor.execute(() -> {
+            try {
+                CloudApi.uploadAuth(baseUrl, apiKey, deviceId, category, name, readDocumentFile(auth));
+                addActivityLog("CLOUD upload berhasil: " + category + " / " + name);
+                runOnUiThread(() -> updateStatus("✓ AUTH tersimpan lokal + cloud: " + category + " / " + name));
+            } catch (Exception e) {
+                addActivityLog("CLOUD upload gagal: " + category + " / " + name + " — " + e.getMessage());
+                runOnUiThread(() -> updateStatus("AUTH lokal tersimpan, cloud gagal: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void syncCloudToLibrary() {
+        if (!cloudConfigured()) {
+            updateStatus("Atur EVAULT CLOUD terlebih dahulu.");
+            showCloudSettingsDialog();
+            return;
+        }
+        DocumentFile library = getTree(KEY_LIBRARY);
+        if (!validDir(library)) {
+            updateStatus("Pilih AUTH Library terlebih dahulu.");
+            return;
+        }
+
+        final String baseUrl = prefs.getString(KEY_CLOUD_URL, "").trim();
+        final String apiKey = prefs.getString(KEY_CLOUD_API_KEY, "").trim();
+        updateStatus("☁️ Mengambil daftar AUTH cloud...");
+        cloudExecutor.execute(() -> {
+            try {
+                List<CloudApi.CloudFile> files = CloudApi.library(baseUrl, apiKey);
+                int downloaded = 0, skipped = 0;
+                for (CloudApi.CloudFile file : files) {
+                    DocumentFile category = categoryRoot(library, file.category);
+                    if (!validDir(category)) continue;
+                    DocumentFile account = category.findFile(file.account);
+                    if (account == null) account = category.createDirectory(file.account);
+                    if (!validDir(account)) continue;
+                    DocumentFile existing = account.findFile(AUTH_FILE);
+                    if (existing != null && existing.isFile()) {
+                        skipped++;
+                        continue;
+                    }
+                    byte[] auth = CloudApi.downloadAuth(baseUrl, apiKey, file.category, file.account);
+                    DocumentFile out = account.createFile("application/octet-stream", AUTH_FILE);
+                    if (out == null) continue;
+                    try (OutputStream stream = getContentResolver().openOutputStream(out.getUri())) {
+                        if (stream == null) throw new Exception("Gagal membuka file target.");
+                        stream.write(auth);
+                    }
+                    downloaded++;
+                    addActivityLog("CLOUD download berhasil: " + file.category + " / " + file.account);
+                }
+                int finalDownloaded = downloaded, finalSkipped = skipped;
+                runOnUiThread(() -> {
+                    loadAccounts();
+                    updateStatus("✓ Cloud sync selesai. Download: " + finalDownloaded + ", sudah ada: " + finalSkipped);
+                });
+            } catch (Exception e) {
+                addActivityLog("CLOUD sync gagal: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud sync gagal: " + e.getMessage()));
+            }
+        });
     }
 
     private void startAutoLogin(){
