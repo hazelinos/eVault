@@ -59,6 +59,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CLOUD_DEVICE_ID = "cloud_device_id";
     private static final String KEY_CLOUD_DEVICE_TOKEN = "cloud_device_token";
     private static final String KEY_CLOUD_TELEGRAM = "cloud_telegram";
+    private static final String KEY_CLOUD_ACCOUNT_NAME = "cloud_account_name";
+    private static final String KEY_CLOUD_ACCOUNT_ID = "cloud_account_id";
     private static final String CLOUD_BASE_URL = BuildConfig.EVAULT_CLOUD_URL;
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
@@ -1006,12 +1008,14 @@ public class MainActivity extends AppCompatActivity {
     private void showCloudSettingsDialog() {
         String token = cloudDeviceToken();
         String telegram = prefs.getString(KEY_CLOUD_TELEGRAM, "").trim();
+        String accountName = prefs.getString(KEY_CLOUD_ACCOUNT_NAME, "").trim();
 
         if (!token.isEmpty()) {
             new AlertDialog.Builder(this)
                 .setTitle("☁️ EVAULT CLOUD")
                 .setMessage("Status: 🟢 Terhubung"
-                        + (telegram.isEmpty() ? "" : "\nAkun: @" + telegram)
+                        + (accountName.isEmpty() ? "" : "\nAkun: " + accountName)
+                        + (telegram.isEmpty() ? "" : "\nTelegram: @" + telegram)
                         + "\nDevice: " + cloudDeviceId()
                         + "\n\nToken tersimpan aman di perangkat.")
                 .setNegativeButton("TUTUP", null)
@@ -1020,6 +1024,8 @@ public class MainActivity extends AppCompatActivity {
                     prefs.edit()
                         .remove(KEY_CLOUD_DEVICE_TOKEN)
                         .remove(KEY_CLOUD_TELEGRAM)
+                        .remove(KEY_CLOUD_ACCOUNT_NAME)
+                        .remove(KEY_CLOUD_ACCOUNT_ID)
                         .apply();
                     updateStatus("eVault Cloud diputuskan.");
                 })
@@ -1072,16 +1078,23 @@ public class MainActivity extends AppCompatActivity {
         updateStatus("☁️ Memeriksa Cloud Token...");
         cloudExecutor.execute(() -> {
             try {
-                // A successful library request proves the token is valid without
-                // exposing the token to Telegram or storing it remotely.
+                CloudApi.AccountIdentity identity = CloudApi.accountMe(CLOUD_BASE_URL, cleanToken);
                 CloudApi.library(CLOUD_BASE_URL, cleanToken);
-                prefs.edit()
+
+                SharedPreferences.Editor editor = prefs.edit()
                     .putString(KEY_CLOUD_DEVICE_TOKEN, cleanToken)
-                    .remove(KEY_CLOUD_TELEGRAM)
-                    .apply();
+                    .putString(KEY_CLOUD_ACCOUNT_NAME, identity.displayName)
+                    .putString(KEY_CLOUD_ACCOUNT_ID, identity.id);
+                if (identity.telegramUsername.isEmpty()) {
+                    editor.remove(KEY_CLOUD_TELEGRAM);
+                } else {
+                    editor.putString(KEY_CLOUD_TELEGRAM, identity.telegramUsername);
+                }
+                editor.apply();
+
                 registerCloudDeviceAsync();
-                addActivityLog("CLOUD token berhasil diverifikasi.");
-                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
+                addActivityLog("CLOUD token berhasil diverifikasi: " + identity.displayName);
+                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung: " + identity.displayName));
             } catch (Exception e) {
                 addActivityLog("CLOUD token ditolak: " + e.getMessage());
                 runOnUiThread(() -> updateStatus("Cloud Token tidak valid: " + e.getMessage()));
