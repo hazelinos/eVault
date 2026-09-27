@@ -93,3 +93,4 @@ jobs:
           make_latest: true
           files: eVault-v1.3.3.apk
 # v1.3.3 release trigger checkpoint
+# v1.3.3 rebuild trigger
