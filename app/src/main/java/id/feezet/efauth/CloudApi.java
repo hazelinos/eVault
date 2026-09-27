@@ -48,10 +48,10 @@ public final class CloudApi {
         }
     }
 
-    private static byte[] request(HttpURLConnection c, byte[] body) throws Exception {
+    private static byte[] request(HttpURLConnection c, byte[] body, String contentType) throws Exception {
         if (body != null) {
             c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            if (contentType != null) c.setRequestProperty("Content-Type", contentType);
             try (OutputStream out = c.getOutputStream()) { out.write(body); }
         }
         int code = c.getResponseCode();
@@ -65,12 +65,12 @@ public final class CloudApi {
         HttpURLConnection c = connection(baseUrl, apiKey, "POST", "/api/evault/v1/devices/register");
         JSONObject body = new JSONObject();
         body.put("device_id", deviceId); body.put("name", name); body.put("model", model); body.put("app_version", version);
-        request(c, body.toString().getBytes(StandardCharsets.UTF_8));
+        request(c, body.toString().getBytes(StandardCharsets.UTF_8), "application/json; charset=utf-8");
     }
 
     public static List<CloudFile> library(String baseUrl, String apiKey) throws Exception {
         HttpURLConnection c = connection(baseUrl, apiKey, "GET", "/api/evault/v1/library");
-        JSONObject root = new JSONObject(new String(request(c, null), StandardCharsets.UTF_8));
+        JSONObject root = new JSONObject(new String(request(c, null, null), StandardCharsets.UTF_8));
         JSONArray files = root.optJSONArray("files");
         List<CloudFile> result = new ArrayList<>();
         if (files != null) for (int i = 0; i < files.length(); i++) {
@@ -89,13 +89,13 @@ public final class CloudApi {
         c.setRequestProperty("X-Device-ID", deviceId);
         c.setRequestProperty("X-eVault-Category", category);
         c.setRequestProperty("X-eVault-Account", account);
-        request(c, auth);
+        request(c, auth, "application/octet-stream");
     }
 
     public static byte[] downloadAuth(String baseUrl, String apiKey, String category, String account) throws Exception {
         String path = "/api/evault/v1/auth/" + URLEncoder.encode(category, "UTF-8").replace("+", "%20") + "/"
                 + URLEncoder.encode(account, "UTF-8").replace("+", "%20") + "/download";
         HttpURLConnection c = connection(baseUrl, apiKey, "GET", path);
-        return request(c, null);
+        return request(c, null, null);
     }
 }
