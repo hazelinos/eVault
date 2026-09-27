@@ -240,7 +240,7 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(target, spacedLp(dp(10)));
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
-        Button cloudBtn = secondaryButton("☁️ SAMBUNGKAN TELEGRAM", v -> showCloudSettingsDialog());
+        Button cloudBtn = secondaryButton("☁️ EVAULT CLOUD", v -> showCloudSettingsDialog());
         setupCard.addView(cloudBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
@@ -1011,64 +1011,88 @@ public class MainActivity extends AppCompatActivity {
             new AlertDialog.Builder(this)
                 .setTitle("☁️ EVAULT CLOUD")
                 .setMessage("Status: 🟢 Terhubung"
-                        + (telegram.isEmpty() ? "" : "\nTelegram: @" + telegram)
-                        + "\nDevice: " + cloudDeviceId())
+                        + (telegram.isEmpty() ? "" : "\nAkun: @" + telegram)
+                        + "\nDevice: " + cloudDeviceId()
+                        + "\n\nToken tersimpan aman di perangkat.")
                 .setNegativeButton("TUTUP", null)
-                .setPositiveButton("PUTUSKAN TELEGRAM", (d, w) -> {
+                .setPositiveButton("GANTI TOKEN", (d, w) -> showCloudTokenInputDialog())
+                .setNeutralButton("PUTUSKAN", (d, w) -> {
                     prefs.edit()
                         .remove(KEY_CLOUD_DEVICE_TOKEN)
                         .remove(KEY_CLOUD_TELEGRAM)
                         .apply();
-                    updateStatus("Telegram eVault Cloud diputuskan.");
+                    updateStatus("eVault Cloud diputuskan.");
                 })
                 .show();
             return;
         }
 
-        if (CLOUD_BASE_URL.trim().isEmpty()) {
-            updateStatus("eVault Cloud belum dikonfigurasi.");
-            return;
-        }
+        showCloudTokenInputDialog();
+    }
 
-        final String deviceId = cloudDeviceId();
-        updateStatus("☁️ Membuat koneksi Telegram...");
+    private void showCloudTokenInputDialog() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("ev_...");
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        input.setPadding(dp(12), dp(12), dp(12), dp(12));
+        styleInput(input);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(4), dp(20), dp(4));
+        box.addView(input, fullLp());
+
+        new AlertDialog.Builder(this)
+            .setTitle("☁️ HUBUNGKAN EVAULT CLOUD")
+            .setMessage("Tempel Cloud Token yang dibuat dari akun eVault Cloud di Telegram.")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("HUBUNGKAN", null)
+            .create();
+        
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("☁️ HUBUNGKAN EVAULT CLOUD")
+            .setMessage("Tempel Cloud Token yang dibuat dari akun eVault Cloud di Telegram.")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("HUBUNGKAN", null)
+            .create();
+
+        dialog.setOnShowListener(d -> {
+            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            ok.setOnClickListener(v -> {
+                String value = input.getText().toString().trim();
+                if (value.isEmpty()) {
+                    input.setError("Cloud Token wajib diisi.");
+                    return;
+                }
+                dialog.dismiss();
+                connectCloudWithToken(value);
+            });
+        });
+        dialog.show();
+    }
+
+    private void connectCloudWithToken(String token) {
+        final String cleanToken = token.trim();
+        updateStatus("☁️ Memeriksa Cloud Token...");
         cloudExecutor.execute(() -> {
             try {
-                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-                CloudApi.PairSession session = CloudApi.startPairing(
-                        CLOUD_BASE_URL, deviceId, "eVault " + Build.MODEL, Build.MODEL, version);
-
-                runOnUiThread(() -> {
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(session.botUrl));
-                        startActivity(intent);
-                        updateStatus("Telegram dibuka. Tekan HUBUNGKAN EVAULT di bot.");
-                    } catch (Exception e) {
-                        updateStatus("Gagal membuka Telegram: " + e.getMessage());
-                    }
-                });
-
-                long deadline = System.currentTimeMillis() + 5 * 60 * 1000L;
-                while (System.currentTimeMillis() < deadline) {
-                    Thread.sleep(1500);
-                    CloudApi.PairStatus status = CloudApi.pairStatus(CLOUD_BASE_URL, session.sessionId);
-                    if ("PAIRED".equals(status.status) && !status.token.isEmpty()) {
-                        prefs.edit()
-                            .putString(KEY_CLOUD_DEVICE_TOKEN, status.token)
-                            .putString(KEY_CLOUD_TELEGRAM, status.telegramUsername)
-                            .apply();
-                        registerCloudDeviceAsync();
-                        addActivityLog("CLOUD Telegram terhubung: @" + status.telegramUsername);
-                        runOnUiThread(() -> updateStatus("✓ Telegram terhubung ke eVault Cloud."));
-                        return;
-                    }
-                    if ("EXPIRED".equals(status.status)) break;
-                }
-
-                runOnUiThread(() -> updateStatus("Pairing Telegram kedaluwarsa. Coba lagi."));
+                // A successful library request proves the token is valid without
+                // exposing the token to Telegram or storing it remotely.
+                CloudApi.library(CLOUD_BASE_URL, cleanToken);
+                prefs.edit()
+                    .putString(KEY_CLOUD_DEVICE_TOKEN, cleanToken)
+                    .remove(KEY_CLOUD_TELEGRAM)
+                    .apply();
+                registerCloudDeviceAsync();
+                addActivityLog("CLOUD token berhasil diverifikasi.");
+                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
             } catch (Exception e) {
-                addActivityLog("CLOUD pairing gagal: " + e.getMessage());
-                runOnUiThread(() -> updateStatus("Cloud pairing gagal: " + e.getMessage()));
+                addActivityLog("CLOUD token ditolak: " + e.getMessage());
+                runOnUiThread(() -> updateStatus("Cloud Token tidak valid: " + e.getMessage()));
             }
         });
     }
