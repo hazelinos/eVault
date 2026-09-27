@@ -16,6 +16,20 @@ import java.util.List;
 public final class CloudApi {
     private CloudApi() {}
 
+    public static final class AccountIdentity {
+        public final String id;
+        public final String displayName;
+        public final String telegramUsername;
+        public final String tokenPrefix;
+
+        public AccountIdentity(String id, String displayName, String telegramUsername, String tokenPrefix) {
+            this.id = id;
+            this.displayName = displayName;
+            this.telegramUsername = telegramUsername;
+            this.tokenPrefix = tokenPrefix;
+        }
+    }
+
     public static final class PairSession {
         public final String sessionId;
         public final String botUrl;
