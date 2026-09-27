@@ -112,6 +112,19 @@ public final class CloudApi {
         );
     }
 
+    public static AccountIdentity accountMe(String baseUrl, String deviceToken) throws Exception {
+        HttpURLConnection c = connection(baseUrl, deviceToken, "GET", "/api/evault/v1/account/me");
+        JSONObject root = new JSONObject(new String(request(c, null, null), StandardCharsets.UTF_8));
+        JSONObject account = root.optJSONObject("account");
+        if (account == null) throw new Exception("Cloud account identity missing");
+        return new AccountIdentity(
+                account.optString("id", ""),
+                account.optString("display_name", account.optString("name", "")),
+                account.optString("telegram_username", ""),
+                account.optString("token_prefix", "")
+        );
+    }
+
     public static void registerDevice(String baseUrl, String deviceToken, String deviceId, String name, String model, String version) throws Exception {
         HttpURLConnection c = connection(baseUrl, deviceToken, "POST", "/api/evault/v1/devices/register");
         JSONObject body = new JSONObject();
