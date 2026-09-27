@@ -792,15 +792,13 @@ public class MainActivity extends AppCompatActivity {
 
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
-            .setMessage("Pilih akun yang mau diproses:")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
-                "LOGIN YANG BELUM LOGIN HARI INI",
-                "PILIH AKUN"
+                "LOGIN YANG BELUM LOGIN HARI INI"
             }, (d, which) -> {
-                String mode = which == 0 ? "all" : (which == 1 ? "unverified" : "single");
+                String mode = which == 0 ? "all" : "unverified";
                 prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
-                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : (which == 1 ? "BELUM LOGIN HARI INI" : "PILIH AKUN")));
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
                 showCategoryPickerDialog(categories);
             })
             .setNegativeButton("BATAL", null)
