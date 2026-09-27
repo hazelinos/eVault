@@ -741,55 +741,29 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("Akun Baru: "+current)
                 .setMessage("Pilih penyimpanan AUTH akun ini.")
                 .setCancelable(false)
-                .setNegativeButton("BATAL",(d,w)->{
-                    clearWorkflow();
-                    updateStatus("Pembuatan akun baru dihentikan.");
+                .setItems(new String[]{
+                        "☁️ SIMPAN CLOUD",
+                        "📱 SIMPAN LOKAL",
+                        "🗑️ HAPUS",
+                        "BATAL"
+                }, (d,which)->{
+                    if(which==0){
+                        if(!cloudConfigured()){
+                            updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
+                            showCloudSettingsDialog();
+                            return;
+                        }
+                        saveCreatedAccount(current,index,names.size(),true);
+                    }else if(which==1){
+                        saveCreatedAccount(current,index,names.size(),false);
+                    }else if(which==2){
+                        deleteCreatedAccount(current,index,names.size());
+                    }else{
+                        clearWorkflow();
+                        updateStatus("Pembuatan akun baru dihentikan.");
+                    }
                 })
-                .setNeutralButton("🗑️ HAPUS",(d,w)->{
-                    DocumentFile target=getTree(KEY_TARGET);
-                    DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);
-                    if(auth!=null&&auth.isFile())auth.delete();
-                    addActivityLog("CREATE ACCOUNT dihapus: "+current);
-                    int next=index+1;
-                    prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();
-                    if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
-                })
-                .setPositiveButton("📱 SIMPAN LOKAL",(d,w)->{
-                    saveCreatedAccount(current,index,names.size(),false);
-                })
-                .setOnCancelListener(d -> {});
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Akun Baru: "+current)
-                .setMessage("Pilih penyimpanan AUTH akun ini.")
-                .setCancelable(false)
-                .setNegativeButton("BATAL",(d,w)->{
-                    clearWorkflow();
-                    updateStatus("Pembuatan akun baru dihentikan.");
-                })
-                .setNeutralButton("🗑️ HAPUS",(d,w)->{
-                    deleteCreatedAccount(current,index,names.size());
-                })
-                .setPositiveButton("📱 SIMPAN LOKAL",(d,w)->{
-                    saveCreatedAccount(current,index,names.size(),false);
-                })
-                .create();
-        dialog.setOnShowListener(d -> {
-            Button local = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            local.setOnClickListener(v -> saveCreatedAccount(current,index,names.size(),false));
-
-            Button cloud = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-            cloud.setText("☁️ SIMPAN CLOUD");
-            cloud.setOnClickListener(v -> {
-                if(!cloudConfigured()){
-                    updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
-                    showCloudSettingsDialog();
-                    return;
-                }
-                dialog.dismiss();
-                saveCreatedAccount(current,index,names.size(),true);
-            });
-        });
-        dialog.show();
+                .show();
     }
 
     private void deleteCreatedAccount(String current,int index,int total){
