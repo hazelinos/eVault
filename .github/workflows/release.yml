@@ -37,7 +37,7 @@ jobs:
           if [ ! -s signing/evault-debug.jks ]; then
             echo "Generating new signing key..."
             mkdir -p signing
-            keytool -genkeypair               -keystore signing/evault-debug.jks               -storepass android               -keypass android               -alias androiddebugkey               -keyalg RSA               -keysize 2048               -validity 10000               -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
+            keytool -genkeypair -keystore signing/evault-debug.jks -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add signing/evault-debug.jks
@@ -68,7 +68,7 @@ jobs:
           PY
 
       - name: Build installable APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew -PEVAULT_CLOUD_URL="https://airdrop-hunter-production-c028.up.railway.app" assembleDebug --stacktrace
 
       - name: Rename APK
         run: |
