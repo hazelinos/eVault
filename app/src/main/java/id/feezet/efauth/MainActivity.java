@@ -732,15 +732,97 @@ public class MainActivity extends AppCompatActivity {
     private static String toLetters(int n){StringBuilder sb=new StringBuilder();while(n>0){n--;sb.insert(0,(char)('a'+n%26));n/=26;}return sb.toString();}
 
     private void showCreateExitDialog() {
-        List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));int index=prefs.getInt(KEY_CREATE_INDEX,0);if(index>=names.size()){finishCreate();return;}String current=names.get(index);
-        new AlertDialog.Builder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
-                .setNegativeButton("BATAL",(d,w)->{clearWorkflow();updateStatus("Pembuatan akun baru dihentikan.");})
-                .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
-                .setPositiveButton("SIMPAN",(d,w)->{
-                    DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
-                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
-                    if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}uploadAuthToCloudAsync(prefs.getString(KEY_CREATE_CATEGORY,"AKUN"), current, folder.findFile(AUTH_FILE));auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
-                }).show();
+        List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));
+        int index=prefs.getInt(KEY_CREATE_INDEX,0);
+        if(index>=names.size()){finishCreate();return;}
+        String current=names.get(index);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Akun Baru: "+current)
+                .setMessage("Pilih penyimpanan AUTH akun ini.")
+                .setCancelable(false)
+                .setItems(new String[]{
+                        "☁️ SIMPAN CLOUD",
+                        "📱 SIMPAN LOKAL",
+                        "🗑️ HAPUS",
+                        "BATAL"
+                }, (d,which)->{
+                    if(which==0){
+                        if(!cloudConfigured()){
+                            updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
+                            showCloudSettingsDialog();
+                            return;
+                        }
+                        saveCreatedAccount(current,index,names.size(),true);
+                    }else if(which==1){
+                        saveCreatedAccount(current,index,names.size(),false);
+                    }else if(which==2){
+                        deleteCreatedAccount(current,index,names.size());
+                    }else{
+                        clearWorkflow();
+                        updateStatus("Pembuatan akun baru dihentikan.");
+                    }
+                })
+                .show();
+    }
+
+    private void deleteCreatedAccount(String current,int index,int total){
+        DocumentFile target=getTree(KEY_TARGET);
+        DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);
+        if(auth!=null&&auth.isFile())auth.delete();
+        addActivityLog("CREATE ACCOUNT dihapus: "+current);
+        int next=index+1;
+        prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();
+        if(next>=total)finishCreate();else launchCurrentCreateAccount();
+    }
+
+    private void saveCreatedAccount(String current,int index,int total,boolean uploadCloud){
+        DocumentFile target=getTree(KEY_TARGET);
+        DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);
+        if(auth==null||!auth.isFile()){
+            updateStatus("AUTH tidak ditemukan di Target.");
+            clearWorkflow();
+            return;
+        }
+
+        DocumentFile library=getTree(KEY_LIBRARY);
+        DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));
+        if(!validDir(root)){
+            updateStatus("Kategori penyimpanan tidak tersedia.");
+            clearWorkflow();
+            return;
+        }
+
+        DocumentFile folder=root.findFile(current);
+        if(folder==null)folder=root.createDirectory(current);
+        if(folder==null){
+            updateStatus("Gagal membuat folder: "+current);
+            clearWorkflow();
+            return;
+        }
+
+        if(!copyFile(auth,folder,AUTH_FILE)){
+            folder.delete();
+            updateStatus("Gagal menyimpan AUTH: "+current);
+            clearWorkflow();
+            return;
+        }
+
+        if(uploadCloud){
+            DocumentFile savedAuth=folder.findFile(AUTH_FILE);
+            uploadAuthToCloudAsync(prefs.getString(KEY_CREATE_CATEGORY,"AKUN"),current,savedAuth);
+            addActivityLog("CREATE ACCOUNT disimpan: LOCAL + CLOUD: "+current);
+            updateStatus("✓ "+current+" tersimpan lokal + Cloud.");
+        }else{
+            addActivityLog("CREATE ACCOUNT disimpan: LOCAL: "+current);
+            updateStatus("✓ "+current+" tersimpan lokal.");
+        }
+
+        auth.delete();
+        loadAccounts();
+        int next=index+1;
+        prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();
+        if(next>=total)finishCreate();else launchCurrentCreateAccount();
     }
 
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
