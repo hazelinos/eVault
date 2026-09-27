@@ -51,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_NAMING = "create_naming";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
+    private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -227,6 +228,8 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(library, spacedLp(dp(4)));
         Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
         setupCard.addView(target, spacedLp(dp(10)));
+        Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
+        setupCard.addView(webhookBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -716,6 +719,40 @@ public class MainActivity extends AppCompatActivity {
 
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
 
+    private void showDiscordWebhookDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("https://discord.com/api/webhooks/...");
+        input.setText(prefs.getString(KEY_DISCORD_WEBHOOK, ""));
+        styleInput(input);
+
+        new AlertDialog.Builder(this)
+            .setTitle("DISCORD WEBHOOK")
+            .setMessage("Masukkan URL webhook Discord untuk menerima notifikasi eVault.")
+            .setView(input)
+            .setNegativeButton("BATAL", null)
+            .setNeutralButton("HAPUS", (d, w) -> {
+                prefs.edit().remove(KEY_DISCORD_WEBHOOK).apply();
+                updateStatus("✓ Discord Webhook dihapus.");
+            })
+            .setPositiveButton("SIMPAN & TEST", (d, w) -> {
+                String url = input.getText().toString().trim();
+                if (!DiscordWebhook.isValidUrl(url)) {
+                    updateStatus("URL Discord Webhook tidak valid.");
+                    return;
+                }
+                prefs.edit().putString(KEY_DISCORD_WEBHOOK, url).apply();
+                updateStatus("✓ Webhook tersimpan. Mengirim test...");
+                notifyDiscord("🔔 **eVault**\nWebhook berhasil terhubung.");
+            })
+            .show();
+    }
+
+    private void notifyDiscord(String message) {
+        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "").trim();
+        if (!url.isEmpty()) DiscordWebhook.send(url, message);
+    }
+
     private void saveAutoLoginDelay() {
         if (autoLoginDelayEdit == null) return;
         try {
@@ -880,6 +917,7 @@ public class MainActivity extends AppCompatActivity {
 
         autoLoginRunning=true;
         autoLoginIndex=0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\\nKategori: **" + category + "**\\nAkun: **" + autoLoginAccounts.size() + "**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_CATEGORY, category)
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
@@ -926,6 +964,7 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.add(account);
         autoLoginRunning = true;
         autoLoginIndex = 0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\\nKategori: **" + account.category + "**\\nAkun: **1**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_MODE, "single")
             .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
@@ -944,6 +983,7 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
             addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
             updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
+            notifyDiscord("✅ **AUTO LOGIN SELESAI**\\nDiproses: **"+total+"/"+total+"**");
             return;
         }
 
@@ -951,11 +991,13 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
+        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
 
         if(!copyAuth(account)){
             autoLoginRunning=false;
             addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
             updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
+            notifyDiscord("❌ **AUTO LOGIN GAGAL**\\nAkun: **" + account.name + "**\\nPenyebab: COPY AUTH gagal.");
             return;
         }
 
@@ -1079,6 +1121,7 @@ public class MainActivity extends AppCompatActivity {
         if(wasRunning){
             addActivityLog("AUTO LOGIN dihentikan.");
             updateStatus("AUTO LOGIN dihentikan.");
+            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
         }
     }
 
@@ -1106,6 +1149,7 @@ public class MainActivity extends AppCompatActivity {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             addActivityLog("Berhasil membuka eFootball.");
+            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\\nPackage: `"+PACKAGE+"`");
             return true;
         } catch(Exception e) {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
