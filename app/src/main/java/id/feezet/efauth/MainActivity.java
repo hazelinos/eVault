@@ -1044,14 +1044,6 @@ public class MainActivity extends AppCompatActivity {
         box.setPadding(dp(20), dp(4), dp(20), dp(4));
         box.addView(input, fullLp());
 
-        new AlertDialog.Builder(this)
-            .setTitle("☁️ HUBUNGKAN EVAULT CLOUD")
-            .setMessage("Tempel Cloud Token yang dibuat dari akun eVault Cloud di Telegram.")
-            .setView(box)
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("HUBUNGKAN", null)
-            .create();
-        
         AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("☁️ HUBUNGKAN EVAULT CLOUD")
             .setMessage("Tempel Cloud Token yang dibuat dari akun eVault Cloud di Telegram.")
