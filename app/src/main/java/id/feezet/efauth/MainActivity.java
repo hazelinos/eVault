@@ -682,7 +682,7 @@ public class MainActivity extends AppCompatActivity {
 
             DocumentFile duplicate = findChildIgnoreCase(categoryDir, accountName);
             if (duplicate != null) {
-                input.setError("Nama "" + accountName + "" sudah ada di kategori ini.");
+                input.setError("Nama \\"" + accountName + "\\" sudah ada di kategori ini.");
                 input.requestFocus();
                 return;
             }
