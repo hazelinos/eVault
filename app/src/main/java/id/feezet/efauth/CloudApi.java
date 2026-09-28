@@ -174,6 +174,15 @@ public final class CloudApi {
         request(c, auth, "application/octet-stream");
     }
 
+    public static void logActivity(String baseUrl, String deviceToken, String deviceId, String level, String message) throws Exception {
+        HttpURLConnection c = connection(baseUrl, deviceToken, "POST", "/api/evault/v1/activity");
+        JSONObject body = new JSONObject();
+        body.put("level", level == null ? "INFO" : level);
+        body.put("message", message);
+        if (deviceId != null && !deviceId.trim().isEmpty()) c.setRequestProperty("X-Device-ID", deviceId);
+        request(c, body.toString().getBytes(StandardCharsets.UTF_8), "application/json; charset=utf-8");
+    }
+
     public static byte[] downloadAuth(String baseUrl, String deviceToken, String category, String account) throws Exception {
         String path = "/api/evault/v1/auth/" + URLEncoder.encode(category, "UTF-8").replace("+", "%20") + "/"
                 + URLEncoder.encode(account, "UTF-8").replace("+", "%20") + "/download";
