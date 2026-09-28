@@ -1,48 +1,85 @@
-# eFootball AUTH Manager — Android
+# eVault
 
-Prototype untuk mengelola file `online_user_id_data.dat` milik akun sendiri.
+**eVault** is a lightweight Android utility for managing eFootball AUTH files (`online_user_id_data.dat`) locally.
 
-## Struktur Library
+> Current release: **v1.3.4**
 
-Contoh:
+## Overview
 
-/storage/emulated/0/eFootball AUTH/
-  001 Messi BigTime/
-    online_user_id_data.dat
-  002 Ronaldo/
-    online_user_id_data.dat
-  003 Neymar/
-    online_user_id_data.dat
+eVault keeps your AUTH library organized and makes switching between accounts straightforward. AUTH files are treated as opaque binary data; eVault copies them without parsing or modifying their contents.
 
-## Target
+## Core capabilities
 
-Saat pertama kali dipakai, pilih folder:
+- **AUTH Library** — organize accounts by category.
+- **Switch Account** — copy a selected AUTH into the configured eFootball folder and launch the game.
+- **Create Accounts** — create multiple library account folders using the built-in naming flow.
+- **Save AUTH** — save the current AUTH from the target folder back into the library.
+- **Delete Data** — remove AUTH from the configured target folder.
+- **Auto Login** — process all accounts, unverified accounts, or a selected account.
+- **Login Verification** — record successful logins for the current UTC date.
+- **Activity Log** — keep a local history of eVault actions.
+- **Persistent Settings** — keep the Auto Login delay between app launches.
 
-`/storage/673C-008B/data/files/SaveData/AUTH/`
+## Library structure
 
-Aplikasi akan menulis:
+~~~text
+eFootball AUTH/
+└── Category/
+    ├── Account 1/
+    │   └── online_user_id_data.dat
+    ├── Account 2/
+    │   └── online_user_id_data.dat
+    └── Account 3/
+        └── online_user_id_data.dat
+~~~
 
-`online_user_id_data.dat`
+## Requirements
 
-ke folder tersebut.
+- Android **8.0 (API 26)** or newer.
+- eFootball installed on the device.
+- Access to the AUTH library and target folders through Android Storage Access Framework.
 
-## Mode
+Default game package:
+~~~text
+epl.idsphone
+~~~
 
-- SWITCH: memasang akun yang dipilih lalu membuka package `epl.idsphone`.
-- AUTO 1→100: mengurutkan folder berdasarkan angka awal nama folder, memasang satu per satu, membuka game, lalu menunggu delay yang diatur.
+## Storage permissions
 
-## Catatan Android
-
-Aplikasi memakai Storage Access Framework (SAF). Pada beberapa versi Android/file provider, folder tertentu di storage eksternal tidak dapat dipilih atau ditulis oleh aplikasi biasa. Jika folder target tidak bisa dipilih/ditulis melalui picker, aplikasi tidak dapat memaksa permission tersebut.
-
-Package target game diset ke:
-
-`epl.idsphone`
-
-Jika package clone berbeda, ubah konstanta `PACKAGE` di `MainActivity.java`.
+eVault uses Android **Storage Access Framework (SAF)**. Some Android versions restrict specific external-storage locations; eVault cannot bypass restrictions imposed by the system picker.
 
 ## Build
 
-Buka folder ini di Android Studio dan lakukan Gradle Sync, lalu Build APK.
+Open the project in Android Studio and sync Gradle. For a local debug APK:
+~~~bash
+./gradlew assembleDebug
+~~~
 
-Proyek ini sengaja tidak membaca atau mengurai isi file AUTH; file diperlakukan sebagai data biner dan hanya disalin.
+The APK is generated under `app/build/outputs/apk/debug/`.
+
+## Project structure
+
+~~~text
+eVault/
+├── app/
+├── signing/
+├── .github/workflows/
+├── README.md
+├── CHANGELOG.md
+└── settings.gradle.kts
+~~~
+
+## Release
+
+Releases are built automatically from `main` with GitHub Actions. Artifacts use:
+~~~text
+eVault-vX.Y.Z.apk
+~~~
+
+## Privacy
+
+eVault does not inspect or decode `online_user_id_data.dat`. The file is handled as binary data and copied between locations selected by the user.
+
+## Development
+
+The project intentionally keeps the Android implementation lightweight and dependency-minimal. Core AUTH and Auto Login behavior should be changed incrementally and tested before adding new integrations.
