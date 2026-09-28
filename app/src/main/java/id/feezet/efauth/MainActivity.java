@@ -476,50 +476,147 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showAccountListDialog() {
-        ArrayList<Account> list = new ArrayList<>(accounts);
-        if (list.isEmpty()) {
+        if (accounts.isEmpty()) {
             showInfoDialog("DAFTAR AKUN", "Belum ada akun di AUTH Library.");
             return;
         }
+
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("Cari akun atau kategori...");
+        search.setTextSize(14);
+        styleInput(search);
 
         ListView listView = new ListView(this);
         listView.setDivider(null);
         listView.setDividerHeight(0);
         listView.setBackgroundColor(Color.TRANSPARENT);
-        listView.setPadding(0, dp(4), 0, dp(4));
-        listView.setAdapter(new BaseAdapter() {
-            public int getCount() { return list.size(); }
-            public Object getItem(int position) { return list.get(position); }
+        listView.setPadding(0, dp(2), 0, dp(2));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(6), dp(8), dp(2));
+        box.addView(search, fullLp());
+        LinearLayout.LayoutParams listLp = fullLp();
+        listLp.topMargin = dp(8);
+        box.addView(listView, listLp);
+
+        ArrayList<Object> visibleItems = new ArrayList<>();
+
+        Runnable rebuild = () -> {
+            visibleItems.clear();
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            String lastCategory = null;
+
+            for (Account account : accounts) {
+                boolean matches = query.isEmpty()
+                        || account.name.toLowerCase(Locale.ROOT).contains(query)
+                        || account.category.toLowerCase(Locale.ROOT).contains(query);
+                if (!matches) continue;
+
+                if (!account.category.equals(lastCategory)) {
+                    visibleItems.add(account.category);
+                    lastCategory = account.category;
+                }
+                visibleItems.add(account);
+            }
+        };
+
+        BaseAdapter adapter = new BaseAdapter() {
+            public int getCount() { return visibleItems.size(); }
+            public Object getItem(int position) { return visibleItems.get(position); }
             public long getItemId(int position) { return position; }
 
             public View getView(int position, View convertView, ViewGroup parent) {
-                TextView item = new TextView(MainActivity.this);
-                item.setText(list.get(position).name);
-                item.setTextSize(16);
-                item.setTextColor(color(R.color.textPrimary));
-                item.setGravity(Gravity.CENTER_VERTICAL);
-                item.setPadding(dp(8), 0, dp(8), 0);
-                item.setMinHeight(dp(48));
-                return item;
+                Object item = visibleItems.get(position);
+
+                if (item instanceof String) {
+                    TextView header = new TextView(MainActivity.this);
+                    header.setText("📁  " + ((String) item).toUpperCase(Locale.ROOT));
+                    header.setTextSize(11);
+                    header.setTypeface(Typeface.DEFAULT_BOLD);
+                    header.setTextColor(color(R.color.textSecondary));
+                    header.setGravity(Gravity.CENTER_VERTICAL);
+                    header.setPadding(dp(10), dp(8), dp(10), dp(6));
+                    header.setBackgroundColor(Color.TRANSPARENT);
+                    return header;
+                }
+
+                Account account = (Account) item;
+                LinearLayout row = new LinearLayout(MainActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10), 0, dp(10), 0);
+                row.setMinimumHeight(dp(44));
+
+                TextView marker = new TextView(MainActivity.this);
+                marker.setText("›");
+                marker.setTextSize(18);
+                marker.setTextColor(color(R.color.textSecondary));
+                marker.setGravity(Gravity.CENTER);
+                row.addView(marker, new LinearLayout.LayoutParams(dp(28), dp(44)));
+
+                TextView name = new TextView(MainActivity.this);
+                name.setText(account.name);
+                name.setTextSize(15);
+                name.setTextColor(color(R.color.textPrimary));
+                name.setGravity(Gravity.CENTER_VERTICAL);
+                row.addView(name, new LinearLayout.LayoutParams(0, dp(44), 1f));
+
+                if (selectedAccount == account) {
+                    TextView selected = new TextView(MainActivity.this);
+                    selected.setText("✓");
+                    selected.setTextSize(15);
+                    selected.setTextColor(color(R.color.accent));
+                    selected.setGravity(Gravity.CENTER);
+                    row.addView(selected, new LinearLayout.LayoutParams(dp(28), dp(44)));
+                }
+
+                row.setOnClickListener(v -> {
+                    selectedAccount = account;
+                    notifySelectedAccount(account);
+                    View root = v.getRootView();
+                    Object tag = root.getTag();
+                    if (tag instanceof AlertDialog) ((AlertDialog) tag).dismiss();
+                });
+
+                return row;
             }
+        };
+
+        rebuild.run();
+        listView.setAdapter(adapter);
+
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                rebuild.run();
+                adapter.notifyDataSetChanged();
+            }
+            public void afterTextChanged(android.text.Editable s) {}
         });
 
         final AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("DAFTAR AKUN")
-            .setView(listView)
-            .setNegativeButton("TUTUP", null)
-            .create();
+                .setTitle("DAFTAR AKUN")
+                .setView(box)
+                .setNegativeButton("TUTUP", null)
+                .create();
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
-            selectedAccount = list.get(position);
-            notifySelectedAccount(selectedAccount);
-            dialog.dismiss();
+            Object item = visibleItems.get(position);
+            if (item instanceof Account) {
+                selectedAccount = (Account) item;
+                notifySelectedAccount(selectedAccount);
+                dialog.dismiss();
+            }
         });
 
         dialog.show();
-        int listHeight = Math.min(dp(520), dp(48) * list.size());
-        listView.getLayoutParams().height = listHeight;
-        listView.requestLayout();
+        dialog.getWindow().setLayout(
+                (int) (getResources().getDisplayMetrics().widthPixels * 0.92f),
+                dp(620)
+        );
+        dialog.getWindow().getDecorView().setTag(dialog);
     }
 
     private Account selectedAccount() {
