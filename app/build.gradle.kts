@@ -3,10 +3,6 @@ plugins {
 }
 
 android {
-    buildFeatures {
-        buildConfig = true
-    }
-
     namespace = "id.feezet.efauth"
     compileSdk = 35
 
@@ -14,8 +10,6 @@ android {
         applicationId = "id.feezet.efauth"
         minSdk = 26
         targetSdk = 35
-
-        buildConfigField("String", "EVAULT_CLOUD_URL", "\"${project.findProperty("EVAULT_CLOUD_URL") ?: ""}\"")
         versionCode = 25
         versionName = "1.3.3"
     }

@@ -68,7 +68,7 @@ jobs:
           PY
 
       - name: Build installable APK
-        run: ./gradlew -PEVAULT_CLOUD_URL="https://airdrop-hunter-production-c028.up.railway.app" assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Rename APK
         run: |
@@ -89,8 +89,7 @@ jobs:
         with:
           tag_name: v1.3.3
           name: eVault v1.3.3
-          generate_release_notes: true
+          generate_release_notes: false
+          body: ""
           make_latest: true
           files: eVault-v1.3.3.apk
-# v1.3.3 release trigger checkpoint
-# v1.3.3 rebuild trigger

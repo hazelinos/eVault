@@ -10,7 +10,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Build;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -38,9 +37,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -56,12 +52,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
     private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
-    private static final String KEY_CLOUD_DEVICE_ID = "cloud_device_id";
-    private static final String KEY_CLOUD_DEVICE_TOKEN = "cloud_device_token";
-    private static final String KEY_CLOUD_TELEGRAM = "cloud_telegram";
-    private static final String KEY_CLOUD_ACCOUNT_NAME = "cloud_account_name";
-    private static final String KEY_CLOUD_ACCOUNT_ID = "cloud_account_id";
-    private static final String CLOUD_BASE_URL = BuildConfig.EVAULT_CLOUD_URL;
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -90,7 +80,6 @@ public class MainActivity extends AppCompatActivity {
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
     private String accountFilter = "";
-    private final ExecutorService cloudExecutor = Executors.newSingleThreadExecutor();
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -133,7 +122,6 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         buildUi();
         loadAccounts();
-        registerCloudDeviceAsync();
     }
 
     private boolean createResumeDialogShown = false;
@@ -242,8 +230,6 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(target, spacedLp(dp(10)));
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
-        Button cloudBtn = secondaryButton("☁️ EVAULT CLOUD", v -> showCloudSettingsDialog());
-        setupCard.addView(cloudBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -302,12 +288,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams row1Lp = fullLp();
         row1Lp.bottomMargin = dp(8);
         root.addView(row1, row1Lp);
-
-        // Cloud sync
-        Button cloudSyncBtn = secondaryButton("☁️ SYNC CLOUD", v -> syncCloudToLibrary());
-        LinearLayout.LayoutParams cloudSyncLp = fullLp();
-        cloudSyncLp.bottomMargin = dp(8);
-        root.addView(cloudSyncBtn, cloudSyncLp);
 
         // Actions row 3: SIMPAN AUTH
         Button saveAuthBtn = secondaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
@@ -732,98 +712,15 @@ public class MainActivity extends AppCompatActivity {
     private static String toLetters(int n){StringBuilder sb=new StringBuilder();while(n>0){n--;sb.insert(0,(char)('a'+n%26));n/=26;}return sb.toString();}
 
     private void showCreateExitDialog() {
-        List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));
-        int index=prefs.getInt(KEY_CREATE_INDEX,0);
-        if(index>=names.size()){finishCreate();return;}
-        String current=names.get(index);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Akun Baru: "+current)
-                .setMessage("Pilih penyimpanan AUTH akun ini.")
-                .setCancelable(false)
-                .setItems(new String[]{
-                        "☁️ SIMPAN CLOUD",
-                        "📱 SIMPAN LOKAL",
-                        "🗑️ HAPUS",
-                        "BATAL"
-                }, (d,which)->{
-                    if(which==0){
-                        if(!cloudConfigured()){
-                            updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
-                            showCloudSettingsDialog();
-                            return;
-                        }
-                        saveCreatedAccount(current,index,names.size(),true);
-                    }else if(which==1){
-                        saveCreatedAccount(current,index,names.size(),false);
-                    }else if(which==2){
-                        deleteCreatedAccount(current,index,names.size());
-                    }else{
-                        clearWorkflow();
-                        updateStatus("Pembuatan akun baru dihentikan.");
-                    }
-                })
-                .show();
-    }
-
-    private void deleteCreatedAccount(String current,int index,int total){
-        DocumentFile target=getTree(KEY_TARGET);
-        DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);
-        if(auth!=null&&auth.isFile())auth.delete();
-        addActivityLog("CREATE ACCOUNT dihapus: "+current);
-        int next=index+1;
-        prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();
-        if(next>=total)finishCreate();else launchCurrentCreateAccount();
-    }
-
-    private void saveCreatedAccount(String current,int index,int total,boolean uploadCloud){
-        DocumentFile target=getTree(KEY_TARGET);
-        DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);
-        if(auth==null||!auth.isFile()){
-            updateStatus("AUTH tidak ditemukan di Target.");
-            clearWorkflow();
-            return;
-        }
-
-        DocumentFile library=getTree(KEY_LIBRARY);
-        DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));
-        if(!validDir(root)){
-            updateStatus("Kategori penyimpanan tidak tersedia.");
-            clearWorkflow();
-            return;
-        }
-
-        DocumentFile folder=root.findFile(current);
-        if(folder==null)folder=root.createDirectory(current);
-        if(folder==null){
-            updateStatus("Gagal membuat folder: "+current);
-            clearWorkflow();
-            return;
-        }
-
-        if(!copyFile(auth,folder,AUTH_FILE)){
-            folder.delete();
-            updateStatus("Gagal menyimpan AUTH: "+current);
-            clearWorkflow();
-            return;
-        }
-
-        if(uploadCloud){
-            DocumentFile savedAuth=folder.findFile(AUTH_FILE);
-            logCloudActivityAsync("CREATE ACCOUNT cloud: " + prefs.getString(KEY_CREATE_CATEGORY,"AKUN") + " / " + current);
-            uploadAuthToCloudAsync(prefs.getString(KEY_CREATE_CATEGORY,"AKUN"),current,savedAuth);
-            addActivityLog("CREATE ACCOUNT disimpan: LOCAL + CLOUD: "+current);
-            updateStatus("✓ "+current+" tersimpan lokal + Cloud.");
-        }else{
-            addActivityLog("CREATE ACCOUNT disimpan: LOCAL: "+current);
-            updateStatus("✓ "+current+" tersimpan lokal.");
-        }
-
-        auth.delete();
-        loadAccounts();
-        int next=index+1;
-        prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();
-        if(next>=total)finishCreate();else launchCurrentCreateAccount();
+        List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));int index=prefs.getInt(KEY_CREATE_INDEX,0);if(index>=names.size()){finishCreate();return;}String current=names.get(index);
+        new AlertDialog.Builder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
+                .setNegativeButton("BATAL",(d,w)->{clearWorkflow();updateStatus("Pembuatan akun baru dihentikan.");})
+                .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
+                .setPositiveButton("SIMPAN",(d,w)->{
+                    DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
+                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
+                    if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
+                }).show();
     }
 
     private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
@@ -1016,90 +913,29 @@ public class MainActivity extends AppCompatActivity {
                     updateStatus("Nama akun tidak boleh kosong.");
                     return;
                 }
-                showSaveAuthDestinationDialog(category, name, sourceAuth);
+                saveAuthToLibrary(category, name, sourceAuth);
             })
             .show();
     }
 
-    private void showSaveAuthDestinationDialog(final String category, final String name, final DocumentFile sourceAuth) {
-        final AlertDialog[] holder = new AlertDialog[1];
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(4), dp(4), dp(4), dp(2));
-
-        TextView info = new TextView(this);
-        info.setText("Akun: " + name + "\nKategori: " + category);
-        info.setTextSize(14);
-        info.setTextColor(Color.WHITE);
-        info.setPadding(dp(4), dp(2), dp(4), dp(12));
-        box.addView(info, fullLp());
-
-        Button localBtn = primaryButton("📱 SIMPAN LOKAL", v -> {
-            if (holder[0] != null) holder[0].dismiss();
-            saveAuthToLibrary(category, name, sourceAuth);
-        });
-        box.addView(localBtn, spacedLp(dp(8)));
-
-        Button cloudBtn = secondaryButton(
-                cloudConfigured() ? "☁️ SIMPAN CLOUD" : "☁️ SIMPAN CLOUD (BELUM TERHUBUNG)",
-                v -> {
-                    if (holder[0] != null) holder[0].dismiss();
-
-                    if (!cloudConfigured()) {
-                        updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
-                        showCloudSettingsDialog();
-                        return;
-                    }
-
-                    boolean saved = saveAuthToLibrary(category, name, sourceAuth);
-                    if (saved) {
-                        DocumentFile library = getTree(KEY_LIBRARY);
-                        DocumentFile categoryDir = categoryRoot(library, category);
-                        DocumentFile accountDir = categoryDir == null ? null : categoryDir.findFile(name);
-                        DocumentFile savedAuth = accountDir == null ? null : accountDir.findFile(AUTH_FILE);
-                        if (savedAuth != null && savedAuth.isFile()) {
-                            logCloudActivityAsync("SAVE AUTH cloud: " + category + " / " + name);
-                            uploadAuthToCloudAsync(category, name, savedAuth);
-                            addActivityLog("SAVE AUTH: LOCAL + CLOUD -> " + category + " / " + name);
-                        }
-                    }
-                });
-        box.addView(cloudBtn, spacedLp(dp(8)));
-
-        Button cancelBtn = baseButton("BATAL", v -> {
-            if (holder[0] != null) holder[0].dismiss();
-        });
-        cancelBtn.setBackground(makeDrawable(Color.parseColor("#303030"), dp(6)));
-        cancelBtn.setTextColor(Color.WHITE);
-        box.addView(cancelBtn, spacedLp(0));
-
-        holder[0] = new AlertDialog.Builder(this)
-                .setTitle("PILIH PENYIMPANAN")
-                .setView(box)
-                .create();
-
-        holder[0].show();
-    }
-
-    private boolean saveAuthToLibrary(String category, String name, DocumentFile sourceAuth) {
+    private void saveAuthToLibrary(String category, String name, DocumentFile sourceAuth) {
         DocumentFile library = getTree(KEY_LIBRARY);
         if (!validDir(library)) {
             updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return false;
+            return;
         }
 
         DocumentFile categoryDir = categoryRoot(library, category);
         if (!validDir(categoryDir)) {
             updateStatus("Gagal membuka kategori: " + category);
-            return false;
+            return;
         }
 
         DocumentFile existingFolder = categoryDir.findFile(name);
         if (existingFolder != null && existingFolder.isDirectory()) {
             updateStatus("Akun '" + name + "' sudah ada di kategori '" + category + "'.");
             addActivityLog("SAVE AUTH dibatalkan: akun sudah ada -> " + category + " / " + name);
-            return false;
+            return;
         }
 
         DocumentFile targetFolder = existingFolder;
@@ -1108,252 +944,27 @@ public class MainActivity extends AppCompatActivity {
         }
         if (!validDir(targetFolder)) {
             updateStatus("Gagal membuat folder akun: " + name);
-            return false;
+            return;
         }
 
         DocumentFile existingAuth = targetFolder.findFile(AUTH_FILE);
         if (existingAuth != null && existingAuth.isFile()) {
             updateStatus("Akun '" + name + "' sudah ada dan tidak ditimpa.");
             addActivityLog("SAVE AUTH dibatalkan: file AUTH sudah ada -> " + category + " / " + name);
-            return false;
+            return;
         }
 
         boolean ok = copyFile(sourceAuth, targetFolder, AUTH_FILE);
         if (!ok) {
             updateStatus("Gagal menyimpan AUTH.");
             addActivityLog("SAVE AUTH gagal: " + category + " / " + name);
-            return false;
+            return;
         }
 
         loadAccounts();
         updateStatus("✓ AUTH berhasil disimpan: " + category + " / " + name);
         addActivityLog("SAVE AUTH berhasil: " + category + " / " + name);
         notifyDiscord("💾 **AUTH DISIMPAN**\\nKategori: **" + category + "**\\nAkun: **" + name + "**");
-        return true;
-    }
-
-    private boolean cloudConfigured() {
-        return !CLOUD_BASE_URL.trim().isEmpty()
-                && !prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim().isEmpty();
-    }
-
-    private String cloudDeviceId() {
-        String id = prefs.getString(KEY_CLOUD_DEVICE_ID, "").trim();
-        if (id.isEmpty()) {
-            id = "evault-" + UUID.randomUUID().toString();
-            prefs.edit().putString(KEY_CLOUD_DEVICE_ID, id).apply();
-        }
-        return id;
-    }
-
-    private String cloudDeviceToken() {
-        return prefs.getString(KEY_CLOUD_DEVICE_TOKEN, "").trim();
-    }
-
-    private void showCloudSettingsDialog() {
-        String token = cloudDeviceToken();
-        String telegram = prefs.getString(KEY_CLOUD_TELEGRAM, "").trim();
-        String accountName = prefs.getString(KEY_CLOUD_ACCOUNT_NAME, "").trim();
-
-        if (!token.isEmpty()) {
-            new AlertDialog.Builder(this)
-                .setTitle("☁️ EVAULT CLOUD")
-                .setMessage("Status: 🟢 Terhubung"
-                        + (accountName.isEmpty() ? "" : "\nAkun: " + accountName)
-                        + (telegram.isEmpty() ? "" : "\nTelegram: @" + telegram)
-                        + "\nDevice: " + cloudDeviceId()
-                        + "\n\nToken tersimpan aman di perangkat.")
-                .setNegativeButton("TUTUP", null)
-                .setPositiveButton("GANTI TOKEN", (d, w) -> showCloudTokenInputDialog())
-                .setNeutralButton("PUTUSKAN", (d, w) -> {
-                    prefs.edit()
-                        .remove(KEY_CLOUD_DEVICE_TOKEN)
-                        .remove(KEY_CLOUD_TELEGRAM)
-                        .remove(KEY_CLOUD_ACCOUNT_NAME)
-                        .remove(KEY_CLOUD_ACCOUNT_ID)
-                        .apply();
-                    updateStatus("eVault Cloud diputuskan.");
-                })
-                .show();
-            return;
-        }
-
-        showCloudTokenInputDialog();
-    }
-
-    private void showCloudTokenInputDialog() {
-        final EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("ev_...");
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        input.setPadding(dp(12), dp(12), dp(12), dp(12));
-        styleInput(input);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(4), dp(20), dp(4));
-        box.addView(input, fullLp());
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("☁️ HUBUNGKAN EVAULT CLOUD")
-            .setMessage("Tempel Cloud Token yang dibuat dari akun eVault Cloud di Telegram.")
-            .setView(box)
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("HUBUNGKAN", null)
-            .create();
-
-        dialog.setOnShowListener(d -> {
-            Button ok = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-            ok.setOnClickListener(v -> {
-                String value = input.getText().toString().trim();
-                if (value.isEmpty()) {
-                    input.setError("Cloud Token wajib diisi.");
-                    return;
-                }
-                dialog.dismiss();
-                connectCloudWithToken(value);
-            });
-        });
-        dialog.show();
-    }
-
-    private void connectCloudWithToken(String token) {
-        final String cleanToken = token.trim();
-        updateStatus("☁️ Memeriksa Cloud Token...");
-        cloudExecutor.execute(() -> {
-            try {
-                CloudApi.AccountIdentity identity = CloudApi.accountMe(CLOUD_BASE_URL, cleanToken);
-                CloudApi.library(CLOUD_BASE_URL, cleanToken);
-
-                SharedPreferences.Editor editor = prefs.edit()
-                    .putString(KEY_CLOUD_DEVICE_TOKEN, cleanToken)
-                    .putString(KEY_CLOUD_ACCOUNT_NAME, identity.displayName)
-                    .putString(KEY_CLOUD_ACCOUNT_ID, identity.id);
-                if (identity.telegramUsername.isEmpty()) {
-                    editor.remove(KEY_CLOUD_TELEGRAM);
-                } else {
-                    editor.putString(KEY_CLOUD_TELEGRAM, identity.telegramUsername);
-                }
-                editor.apply();
-
-                registerCloudDeviceAsync();
-                addActivityLog("CLOUD token berhasil diverifikasi: " + identity.displayName);
-                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung: " + identity.displayName));
-            } catch (Exception e) {
-                addActivityLog("CLOUD token ditolak: " + e.getMessage());
-                runOnUiThread(() -> updateStatus("Cloud Token tidak valid: " + e.getMessage()));
-            }
-        });
-    }
-
-    private void registerCloudDeviceAsync() {
-        if (prefs == null || !cloudConfigured()) return;
-        final String deviceToken = cloudDeviceToken();
-        final String deviceId = cloudDeviceId();
-        cloudExecutor.execute(() -> {
-            try {
-                String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-                CloudApi.registerDevice(CLOUD_BASE_URL, deviceToken, deviceId,
-                        "eVault " + Build.MODEL, Build.MODEL, version);
-                addActivityLog("CLOUD device terhubung: " + deviceId);
-                runOnUiThread(() -> updateStatus("✓ eVault Cloud terhubung."));
-            } catch (Exception e) {
-                addActivityLog("CLOUD koneksi gagal: " + e.getMessage());
-                runOnUiThread(() -> updateStatus("Cloud gagal terhubung: " + e.getMessage()));
-            }
-        });
-    }
-
-    private byte[] readDocumentFile(DocumentFile file) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(file.getUri());
-             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-            if (in == null) throw new Exception("Gagal membaca AUTH.");
-            byte[] buffer = new byte[8192];
-            int n;
-            while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
-            return out.toByteArray();
-        }
-    }
-
-    private void logCloudActivityAsync(final String message) {
-        if (!cloudConfigured()) return;
-        final String deviceToken = cloudDeviceToken();
-        final String deviceId = cloudDeviceId();
-        cloudExecutor.execute(() -> {
-            try {
-                CloudApi.logActivity(CLOUD_BASE_URL, deviceToken, deviceId, "INFO", message);
-            } catch (Exception ignored) {
-                // Activity reporting must never break the actual eVault operation.
-            }
-        });
-    }
-
-    private void uploadAuthToCloudAsync(final String category, final String name, final DocumentFile auth) {
-        if (!cloudConfigured() || auth == null || !auth.isFile()) return;
-        final String deviceToken = cloudDeviceToken();
-        final String deviceId = cloudDeviceId();
-        cloudExecutor.execute(() -> {
-            try {
-                CloudApi.uploadAuth(CLOUD_BASE_URL, deviceToken, deviceId, category, name, readDocumentFile(auth));
-                addActivityLog("CLOUD upload berhasil: " + category + " / " + name);
-                runOnUiThread(() -> updateStatus("✓ AUTH tersimpan lokal + cloud: " + category + " / " + name));
-            } catch (Exception e) {
-                addActivityLog("CLOUD upload gagal: " + category + " / " + name + " — " + e.getMessage());
-                runOnUiThread(() -> updateStatus("AUTH lokal tersimpan, cloud gagal: " + e.getMessage()));
-            }
-        });
-    }
-
-    private void syncCloudToLibrary() {
-        if (!cloudConfigured()) {
-            updateStatus("Hubungkan Telegram terlebih dahulu.");
-            showCloudSettingsDialog();
-            return;
-        }
-        DocumentFile library = getTree(KEY_LIBRARY);
-        if (!validDir(library)) {
-            updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return;
-        }
-
-        final String deviceToken = cloudDeviceToken();
-        updateStatus("☁️ Mengambil daftar AUTH cloud...");
-        cloudExecutor.execute(() -> {
-            try {
-                List<CloudApi.CloudFile> files = CloudApi.library(CLOUD_BASE_URL, deviceToken);
-                int downloaded = 0, skipped = 0;
-                for (CloudApi.CloudFile file : files) {
-                    DocumentFile category = categoryRoot(library, file.category);
-                    if (!validDir(category)) continue;
-                    DocumentFile account = category.findFile(file.account);
-                    if (account == null) account = category.createDirectory(file.account);
-                    if (!validDir(account)) continue;
-                    DocumentFile existing = account.findFile(AUTH_FILE);
-                    if (existing != null && existing.isFile()) {
-                        skipped++;
-                        continue;
-                    }
-                    byte[] auth = CloudApi.downloadAuth(CLOUD_BASE_URL, deviceToken, file.category, file.account);
-                    DocumentFile out = account.createFile("application/octet-stream", AUTH_FILE);
-                    if (out == null) continue;
-                    try (OutputStream stream = getContentResolver().openOutputStream(out.getUri())) {
-                        if (stream == null) throw new Exception("Gagal membuka file target.");
-                        stream.write(auth);
-                    }
-                    downloaded++;
-                    addActivityLog("CLOUD download berhasil: " + file.category + " / " + file.account);
-                }
-                int finalDownloaded = downloaded, finalSkipped = skipped;
-                runOnUiThread(() -> {
-                    loadAccounts();
-                    updateStatus("✓ Cloud sync selesai. Download: " + finalDownloaded + ", sudah ada: " + finalSkipped);
-                });
-            } catch (Exception e) {
-                addActivityLog("CLOUD sync gagal: " + e.getMessage());
-                runOnUiThread(() -> updateStatus("Cloud sync gagal: " + e.getMessage()));
-            }
-        });
     }
 
     private void startAutoLogin(){
@@ -1528,182 +1139,3 @@ public class MainActivity extends AppCompatActivity {
         if(!copyAuth(account)){
             autoLoginRunning=false;
             addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
-            updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
-            notifyDiscord("❌ **AUTO LOGIN GAGAL**\nAkun: **" + account.name + "**\nPenyebab: COPY AUTH gagal.");
-            return;
-        }
-
-        if (!launchGame()) {
-            autoLoginRunning=false;
-            addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
-            return;
-        }
-
-        // onResume() will show the login confirmation when eFootball returns.
-        workflowLaunchPending=true;
-        setMode(MODE_AUTO_LOGIN);
-    }
-
-    private void showAutoLoginConfirmationDialog(){
-        if(!autoLoginRunning || !MODE_AUTO_LOGIN.equals(getMode())) return;
-        Account account = findAutoLoginPendingAccount();
-        if(account == null){
-            addActivityLog("AUTO LOGIN error: akun pending tidak ditemukan.");
-            stopAutoLogin();
-            return;
-        }
-
-        updateStatus("Konfirmasi login: " + account.category + " / " + account.name);
-        new AlertDialog.Builder(this)
-            .setTitle("KONFIRMASI LOGIN")
-            .setMessage("Apakah akun " + account.name + " sudah berhasil login di eFootball?")
-            .setCancelable(false)
-            .setPositiveButton("LOGIN BERHASIL", (d,w) -> confirmAutoLoginSuccess(account))
-            .setNegativeButton("BELUM LOGIN", (d,w) -> retryAutoLogin(account))
-            .setNeutralButton("STOP", (d,w) -> stopAutoLogin())
-            .show();
-    }
-
-    private void confirmAutoLoginSuccess(Account account){
-        markLoginVerifiedToday(account);
-        addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
-        updateStatus("✓ " + account.name + " tercatat sudah login hari ini.");
-
-        new AlertDialog.Builder(this)
-            .setTitle("LANJUT AUTO LOGIN?")
-            .setMessage("Akun " + account.name + " sudah berhasil login dan tercatat hari ini.\n\nLanjut ke akun berikutnya?")
-            .setCancelable(false)
-            .setNegativeButton("STOP", (d, w) -> stopAutoLogin())
-            .setPositiveButton("LANJUT", (d, w) -> advanceAutoLoginAfterDelay(account, false))
-            .show();
-    }
-
-    private void retryAutoLogin(Account account){
-        addActivityLog("LOGIN BELUM BERHASIL: " + account.category + " / " + account.name);
-        updateStatus("Login belum terverifikasi: " + account.name + ". Menunggu delay sebelum coba lagi.");
-        advanceAutoLoginAfterDelay(account, true);
-    }
-
-    private void advanceAutoLoginAfterDelay(Account account, boolean retrySame){
-        if(!autoLoginRunning) return;
-        autoLoginHandler.removeCallbacksAndMessages(null);
-        autoLoginHandler.postDelayed(() -> {
-            if(!autoLoginRunning) return;
-            if(retrySame){
-                runNextAutoLogin();
-            } else {
-                autoLoginIndex++;
-                prefs.edit().putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
-                runNextAutoLogin();
-            }
-        }, getAutoLoginDelayMs());
-    }
-
-    private Account findAutoLoginPendingAccount(){
-        String key = prefs.getString(KEY_AUTO_LOGIN_PENDING, null);
-        if(key == null) return null;
-        for(Account a : accounts) if(accountKey(a).equals(key)) return a;
-        return null;
-    }
-
-    private String accountKey(Account account){
-        return account.category + "\u001F" + account.name;
-    }
-
-    private String utcDate(){
-        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-        format.setTimeZone(TimeZone.getTimeZone("UTC"));
-        return format.format(new Date());
-    }
-
-    private boolean isLoginVerifiedToday(Account account){
-        String today = utcDate();
-        String key = accountKey(account) + "\u001F" + today;
-        java.util.Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
-        return verified != null && verified.contains(key);
-    }
-
-    private void markLoginVerifiedToday(Account account){
-        String key = accountKey(account) + "\u001F" + utcDate();
-        java.util.Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
-        java.util.HashSet<String> updated = new java.util.HashSet<>();
-        if(old != null) updated.addAll(old);
-        // Keep today's records plus recent entries; stale records are harmless but pruned here.
-        String today = utcDate();
-        java.util.Iterator<String> it = updated.iterator();
-        while(it.hasNext()){
-            String entry = it.next();
-            int split = entry.lastIndexOf("\u001F");
-            if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
-        }
-        updated.add(key);
-        prefs.edit().putStringSet(KEY_LOGIN_VERIFIED, updated).apply();
-    }
-
-    private long getAutoLoginDelayMs(){
-        try{
-            int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
-            seconds=Math.max(2,seconds);
-            prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
-            return seconds*1000L;
-        }catch(Exception e){
-            return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
-        }
-    }
-
-    private void stopAutoLogin(){
-        boolean wasRunning=autoLoginRunning;
-        autoLoginRunning=false;
-        autoLoginHandler.removeCallbacksAndMessages(null);
-        workflowLaunchPending=false;
-        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
-        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
-        if(wasRunning){
-            addActivityLog("AUTO LOGIN dihentikan.");
-            updateStatus("AUTO LOGIN dihentikan.");
-            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
-        }
-    }
-
-    private boolean copyAuth(Account account){
-        DocumentFile target=getTree(KEY_TARGET);
-        if(!validDir(target)){
-            addActivityLog("COPY AUTH gagal: folder target belum dipilih.");
-            updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
-            return false;
-        }
-        DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();
-        boolean ok=copyFile(account.file,target,AUTH_FILE);
-        addActivityLog("COPY AUTH " + (ok ? "berhasil: " : "gagal: ") + account.category + " / " + account.name);
-        return ok;
-    }
-    private boolean copyFile(DocumentFile source,DocumentFile parent,String name){DocumentFile dest=parent.findFile(name);if(dest!=null)dest.delete();dest=parent.createFile("application/octet-stream",name);if(dest==null)return false;try(InputStream in=getContentResolver().openInputStream(source.getUri());OutputStream out=getContentResolver().openOutputStream(dest.getUri(),"w")){if(in==null||out==null)throw new Exception("stream null");byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();return true;}catch(Exception e){dest.delete();return false;}}
-    private boolean launchGame(){
-        Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
-        if(i==null){
-            addActivityLog("Gagal membuka eFootball: package " + PACKAGE + " tidak ditemukan.");
-            updateStatus("Package "+PACKAGE+" tidak ditemukan.");
-            return false;
-        }
-        try {
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            addActivityLog("Berhasil membuka eFootball.");
-            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
-            return true;
-        } catch(Exception e) {
-            addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
-            updateStatus("Gagal membuka eFootball.");
-            return false;
-        }
-    }
-    private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
-    private String getMode(){return prefs.getString(KEY_MODE,MODE_NONE);}
-    private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
-    private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
-    private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
-    private void updateStatus(String s){if(status!=null)status.setText(s);}
-    @Override protected void onDestroy(){saveAutoLoginDelay(); if(!isChangingConfigurations()) stopAutoLogin(); super.onDestroy();}
-
-    static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
-}
