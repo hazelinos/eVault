@@ -549,7 +549,12 @@ public class MainActivity extends AppCompatActivity {
         stopAutoLogin(); clearWorkflow();
         if (filteredAccounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
         int pos = accountSpinner.getSelectedItemPosition();
-        if (pos >= 0 && pos < filteredAccounts.size() && copyAuth(filteredAccounts.get(pos))) launchGame();
+        if (pos >= 0 && pos < filteredAccounts.size()) {
+            Account selected = filteredAccounts.get(pos);
+            if (copyAuth(selected)) {
+                updateStatus("✓ AUTH diganti: " + selected.category + " / " + selected.name);
+            }
+        }
     }
 
     private void deleteCurrentAuth() {
