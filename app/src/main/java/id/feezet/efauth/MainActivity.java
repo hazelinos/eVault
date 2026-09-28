@@ -1299,3 +1299,96 @@ public class MainActivity extends AppCompatActivity {
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
         format.setTimeZone(TimeZone.getTimeZone("UTC"));
         return format.format(new Date());
+}
+
+    private boolean isLoginVerifiedToday(Account account){
+        String today = utcDate();
+        String key = accountKey(account) + "\u001F" + today;
+        java.util.Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        return verified != null && verified.contains(key);
+    }
+
+    private void markLoginVerifiedToday(Account account){
+        String key = accountKey(account) + "\u001F" + utcDate();
+        java.util.Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        java.util.HashSet<String> updated = new java.util.HashSet<>();
+        if(old != null) updated.addAll(old);
+        // Keep today's records plus recent entries; stale records are harmless but pruned here.
+        String today = utcDate();
+        java.util.Iterator<String> it = updated.iterator();
+        while(it.hasNext()){
+            String entry = it.next();
+            int split = entry.lastIndexOf("\u001F");
+            if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
+        }
+        updated.add(key);
+        prefs.edit().putStringSet(KEY_LOGIN_VERIFIED, updated).apply();
+    }
+
+    private long getAutoLoginDelayMs(){
+        try{
+            int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
+            seconds=Math.max(2,seconds);
+            prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
+            return seconds*1000L;
+        }catch(Exception e){
+            return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
+        }
+    }
+
+    private void stopAutoLogin(){
+        boolean wasRunning=autoLoginRunning;
+        autoLoginRunning=false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        workflowLaunchPending=false;
+        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
+        if(wasRunning){
+            addActivityLog("AUTO LOGIN dihentikan.");
+            updateStatus("AUTO LOGIN dihentikan.");
+            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
+        }
+    }
+
+    private boolean copyAuth(Account account){
+        DocumentFile target=getTree(KEY_TARGET);
+        if(!validDir(target)){
+            addActivityLog("COPY AUTH gagal: folder target belum dipilih.");
+            updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
+            return false;
+        }
+        DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();
+        boolean ok=copyFile(account.file,target,AUTH_FILE);
+        addActivityLog("COPY AUTH " + (ok ? "berhasil: " : "gagal: ") + account.category + " / " + account.name);
+        return ok;
+    }
+    private boolean copyFile(DocumentFile source,DocumentFile parent,String name){DocumentFile dest=parent.findFile(name);if(dest!=null)dest.delete();dest=parent.createFile("application/octet-stream",name);if(dest==null)return false;try(InputStream in=getContentResolver().openInputStream(source.getUri());OutputStream out=getContentResolver().openOutputStream(dest.getUri(),"w")){if(in==null||out==null)throw new Exception("stream null");byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();return true;}catch(Exception e){dest.delete();return false;}}
+    private boolean launchGame(){
+        Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
+        if(i==null){
+            addActivityLog("Gagal membuka eFootball: package " + PACKAGE + " tidak ditemukan.");
+            updateStatus("Package "+PACKAGE+" tidak ditemukan.");
+            return false;
+        }
+        try {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            addActivityLog("Berhasil membuka eFootball.");
+            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
+            return true;
+        } catch(Exception e) {
+            addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
+            updateStatus("Gagal membuka eFootball.");
+            return false;
+        }
+    }
+    private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
+    private String getMode(){return prefs.getString(KEY_MODE,MODE_NONE);}
+    private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
+    private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
+    private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
+    private void updateStatus(String s){if(status!=null)status.setText(s);}
+    @Override protected void onDestroy(){saveAutoLoginDelay(); if(!isChangingConfigurations()) stopAutoLogin(); super.onDestroy();}
+
+    static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
+}
