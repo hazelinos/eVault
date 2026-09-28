@@ -71,6 +71,13 @@ jobs:
         with:
           tag_name: v1.3.4
           name: eVault v1.3.4
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            Stable maintenance release.
+            
+            - Restored the stable local eVault core
+            - Added Save AUTH for the AUTH currently installed in eFootball
+            - Improved AUTH library save flow with category and account naming
+            - No Cloud integration in this release
           make_latest: true
           files: eVault-v1.3.4.apk

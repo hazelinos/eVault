@@ -299,6 +299,12 @@ public class MainActivity extends AppCompatActivity {
         row2Lp.bottomMargin = dp(16);
         root.addView(row2, row2Lp);
 
+        // ---- Save AUTH ----
+        Button saveAuthBtn = primaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
+        LinearLayout.LayoutParams saveAuthLp = fullLp();
+        saveAuthLp.bottomMargin = dp(8);
+        root.addView(saveAuthBtn, saveAuthLp);
+
         // ---- Activity Log ----
         Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
         LinearLayout.LayoutParams activityLogLp = fullLp();
@@ -542,6 +548,192 @@ public class MainActivity extends AppCompatActivity {
         if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; }
         DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; }
         new AlertDialog.Builder(this).setTitle("Hapus AUTH Saat Ini").setMessage("Hapus file AUTH yang sedang terpasang di target?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d,w) -> updateStatus(auth.delete() ? "✓ AUTH saat ini dihapus." : "Gagal menghapus AUTH. Periksa izin folder.")).show();
+    }
+
+    private void showSaveAuthDialog() {
+        stopAutoLogin();
+        clearWorkflow();
+
+        DocumentFile target = getTree(KEY_TARGET);
+        if (!validDir(target)) {
+            showInfoDialog("SIMPAN AUTH", "Pilih folder AUTH eFootball terlebih dahulu di Setup.");
+            return;
+        }
+
+        DocumentFile installedAuth = target.findFile(AUTH_FILE);
+        if (installedAuth == null || !installedAuth.isFile()) {
+            showInfoDialog("SIMPAN AUTH", "Tidak ada AUTH yang terpasang di target eFootball.");
+            updateStatus("Tidak ada AUTH terpasang di target eFootball.");
+            return;
+        }
+
+        DocumentFile library = getTree(KEY_LIBRARY);
+        if (!validDir(library)) {
+            showInfoDialog("SIMPAN AUTH", "Pilih AUTH Library terlebih dahulu di Setup.");
+            return;
+        }
+
+        List<String> categories = getLibraryCategories();
+        ArrayList<String> choices = new ArrayList<>(categories);
+        choices.add("＋ BUAT KATEGORI BARU");
+
+        new AlertDialog.Builder(this)
+            .setTitle("SIMPAN AUTH")
+            .setMessage("Pilih kategori penyimpanan.")
+            .setItems(choices.toArray(new String[0]), (d, which) -> {
+                if (which == choices.size() - 1) {
+                    showNewSaveCategoryDialog();
+                } else {
+                    showSaveAuthNameDialog(choices.get(which));
+                }
+            })
+            .setNegativeButton("BATAL", null)
+            .show();
+    }
+
+    private void showNewSaveCategoryDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Nama kategori");
+        styleInput(input);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("BUAT KATEGORI BARU")
+            .setMessage("Masukkan nama kategori untuk AUTH ini.")
+            .setView(input)
+            .setNegativeButton("BATAL", null)
+            .setPositiveButton("LANJUT", null)
+            .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String categoryName = input.getText().toString().trim();
+            if (categoryName.isEmpty()) {
+                input.setError("Nama kategori wajib diisi.");
+                return;
+            }
+            if (categoryName.contains("/") || categoryName.contains("\\")) {
+                input.setError("Nama kategori tidak boleh mengandung / atau \\.");
+                return;
+            }
+
+            DocumentFile library = getTree(KEY_LIBRARY);
+            if (!validDir(library)) {
+                dialog.dismiss();
+                updateStatus("AUTH Library belum dipilih.");
+                return;
+            }
+
+            DocumentFile existing = findChildIgnoreCase(library, categoryName);
+            if (existing != null && existing.isDirectory()) {
+                input.setError("Kategori sudah ada. Pilih kategori tersebut dari menu sebelumnya.");
+                return;
+            }
+
+            dialog.dismiss();
+            showSaveAuthNameDialog(categoryName);
+        }));
+
+        dialog.show();
+    }
+
+    private void showSaveAuthNameDialog(String categoryName) {
+        DocumentFile library = getTree(KEY_LIBRARY);
+        if (!validDir(library)) {
+            updateStatus("AUTH Library belum dipilih.");
+            return;
+        }
+
+        DocumentFile categoryDir = categoryRoot(library, categoryName);
+        if (!validDir(categoryDir)) {
+            updateStatus("Gagal membuka kategori: " + categoryName);
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Nama file / akun");
+        input.setText("");
+        input.setSelectAllOnFocus(true);
+        styleInput(input);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(8), dp(8), dp(4));
+        box.addView(input, fullLp());
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("NAMA AUTH")
+            .setMessage("Kategori: " + categoryName + "\nMasukkan nama penyimpanan AUTH.")
+            .setView(box)
+            .setNegativeButton("KEMBALI", null)
+            .setPositiveButton("SIMPAN", null)
+            .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String accountName = input.getText().toString().trim();
+            if (accountName.isEmpty()) {
+                input.setError("Nama wajib diisi.");
+                return;
+            }
+            if (accountName.contains("/") || accountName.contains("\\")) {
+                input.setError("Nama tidak boleh mengandung / atau \\.");
+                return;
+            }
+
+            DocumentFile duplicate = findChildIgnoreCase(categoryDir, accountName);
+            if (duplicate != null) {
+                input.setError("Nama "" + accountName + "" sudah ada di kategori ini.");
+                input.requestFocus();
+                return;
+            }
+
+            DocumentFile accountDir = categoryDir.createDirectory(accountName);
+            if (!validDir(accountDir)) {
+                input.setError("Gagal membuat penyimpanan. Coba nama lain.");
+                return;
+            }
+
+            DocumentFile target = getTree(KEY_TARGET);
+            DocumentFile installedAuth = validDir(target) ? target.findFile(AUTH_FILE) : null;
+            if (installedAuth == null || !installedAuth.isFile()) {
+                accountDir.delete();
+                dialog.dismiss();
+                showInfoDialog("SIMPAN AUTH", "AUTH yang terpasang sudah tidak ditemukan di target eFootball.");
+                updateStatus("Tidak ada AUTH terpasang di target eFootball.");
+                return;
+            }
+
+            boolean saved = copyFile(installedAuth, accountDir, AUTH_FILE);
+            if (!saved) {
+                accountDir.delete();
+                input.setError("Gagal menyimpan AUTH. Periksa izin folder.");
+                return;
+            }
+
+            addActivityLog("SIMPAN AUTH berhasil: " + categoryName + " / " + accountName);
+            updateStatus("✓ AUTH tersimpan: " + categoryName + " / " + accountName);
+            dialog.dismiss();
+            loadAccounts();
+        }));
+
+        dialog.show();
+    }
+
+    private DocumentFile findChildIgnoreCase(DocumentFile parent, String wantedName) {
+        if (!validDir(parent) || wantedName == null) return null;
+        for (DocumentFile child : parent.listFiles()) {
+            String name = child.getName();
+            if (name != null && name.equalsIgnoreCase(wantedName)) return child;
+        }
+        return null;
+    }
+
+    private void showInfoDialog(String title, String message) {
+        new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show();
     }
 
     private void showDeleteDataConfirmDialog() {
