@@ -1015,12 +1015,51 @@ public class MainActivity extends AppCompatActivity {
                     updateStatus("Nama akun tidak boleh kosong.");
                     return;
                 }
-                saveAuthToLibrary(category, name, sourceAuth);
+                showSaveAuthDestinationDialog(category, name, sourceAuth);
             })
             .show();
     }
 
-    private void saveAuthToLibrary(String category, String name, DocumentFile sourceAuth) {
+    private void showSaveAuthDestinationDialog(final String category, final String name, final DocumentFile sourceAuth) {
+        String[] options;
+        if (cloudConfigured()) {
+            options = new String[]{"📱 SIMPAN LOKAL", "☁️ SIMPAN CLOUD", "BATAL"};
+        } else {
+            options = new String[]{"📱 SIMPAN LOKAL", "☁️ SIMPAN CLOUD (BELUM TERHUBUNG)", "BATAL"};
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("PILIH PENYIMPANAN")
+                .setMessage("Akun: " + name + "\nKategori: " + category)
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        saveAuthToLibrary(category, name, sourceAuth);
+                        return;
+                    }
+                    if (which == 1) {
+                        if (!cloudConfigured()) {
+                            updateStatus("Hubungkan EVAULT CLOUD terlebih dahulu.");
+                            showCloudSettingsDialog();
+                            return;
+                        }
+                        boolean saved = saveAuthToLibrary(category, name, sourceAuth);
+                        if (saved) {
+                            DocumentFile library = getTree(KEY_LIBRARY);
+                            DocumentFile categoryDir = categoryRoot(library, category);
+                            DocumentFile accountDir = categoryDir == null ? null : categoryDir.findFile(name);
+                            DocumentFile savedAuth = accountDir == null ? null : accountDir.findFile(AUTH_FILE);
+                            if (savedAuth != null && savedAuth.isFile()) {
+                                uploadAuthToCloudAsync(category, name, savedAuth);
+                                addActivityLog("SAVE AUTH: LOCAL + CLOUD -> " + category + " / " + name);
+                            }
+                        }
+                        return;
+                    }
+                })
+                .show();
+    }
+
+    private boolean saveAuthToLibrary(String category, String name, DocumentFile sourceAuth) {
         DocumentFile library = getTree(KEY_LIBRARY);
         if (!validDir(library)) {
             updateStatus("Pilih AUTH Library terlebih dahulu.");
