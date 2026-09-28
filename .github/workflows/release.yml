@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: evault-release
+  cancel-in-progress: true
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -65,19 +69,23 @@ jobs:
           path: eVault-v1.3.4.apk
           if-no-files-found: error
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.3.4
-          name: eVault v1.3.4
-          generate_release_notes: false
-          body: |
-            Stable maintenance release.
-            
-            - Restored the stable local eVault core
-            - Added Save AUTH for the AUTH currently installed in eFootball
-            - Improved AUTH library save flow with category and account naming
-            - No Cloud integration in this release
-          make_latest: true
-          files: eVault-v1.3.4.apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=$(cat <<'EOF'
+          Stable maintenance release.
+
+          - Restored the stable local eVault core
+          - Added Save AUTH for the AUTH currently installed in eFootball
+          - Improved AUTH library save flow with category and account naming
+          - No Cloud integration in this release
+          EOF
+          )
+          if gh release view v1.3.4 >/dev/null 2>&1; then
+            gh release edit v1.3.4 --title "eVault v1.3.4" --notes "$NOTES" --latest
+          else
+            gh release create v1.3.4 --title "eVault v1.3.4" --notes "$NOTES" --latest
+          fi
+          gh release upload v1.3.4 eVault-v1.3.4.apk --clobber
