@@ -224,15 +224,24 @@ public class MainActivity extends AppCompatActivity {
         setupCard.setVisibility(View.GONE);
         setupCard.setId(View.generateViewId());
         this.setupCardId = setupCard.getId();
+        // Setup actions: 2 rows x 2 columns.
+        LinearLayout setupRow1 = new LinearLayout(this);
+        setupRow1.setOrientation(LinearLayout.HORIZONTAL);
         Button library = secondaryButton("PILIH AUTH LIBRARY", v -> chooseLibrary());
-        setupCard.addView(library, spacedLp(dp(4)));
-        Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
-        setupCard.addView(target, spacedLp(dp(10)));
-        Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
-        setupCard.addView(webhookBtn, spacedLp(dp(10)));
+        setupRow1.addView(library, weightLp(dp(6), 0));
+        Button target = secondaryButton("PILIH FOLDER AUTH", v -> chooseTree(pickTarget));
+        setupRow1.addView(target, weightLp(dp(6), 1));
+        setupCard.addView(setupRow1, fullLp());
 
+        LinearLayout setupRow2 = new LinearLayout(this);
+        setupRow2.setOrientation(LinearLayout.HORIZONTAL);
+        Button webhookBtn = secondaryButton("🔔 WEBHOOK", v -> showDiscordWebhookDialog());
+        setupRow2.addView(webhookBtn, weightLp(dp(6), 0));
         Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
-        setupCard.addView(activityLogBtn, spacedLp(dp(10)));
+        setupRow2.addView(activityLogBtn, weightLp(dp(6), 1));
+        LinearLayout.LayoutParams setupRow2Lp = fullLp();
+        setupRow2Lp.topMargin = dp(8);
+        setupCard.addView(setupRow2, setupRow2Lp);
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -578,8 +587,7 @@ public class MainActivity extends AppCompatActivity {
         choices.add("＋ BUAT KATEGORI BARU");
 
         new AlertDialog.Builder(this)
-            .setTitle("SIMPAN AUTH")
-            .setMessage("Pilih kategori penyimpanan.")
+            .setTitle("PILIH KATEGORI PENYIMPANAN")
             .setItems(choices.toArray(new String[0]), (d, which) -> {
                 if (which == choices.size() - 1) {
                     showNewSaveCategoryDialog();
