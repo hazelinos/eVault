@@ -473,6 +473,8 @@ public class MainActivity extends AppCompatActivity {
             if (sa <= 0 && sb > 0) return 1;
             return a.name.compareToIgnoreCase(b.name);
         });
+    }
+
     private void showAccountListDialog() {
         ArrayList<Account> list = new ArrayList<>(accounts);
         if (list.isEmpty()) {
