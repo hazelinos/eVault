@@ -231,6 +231,9 @@ public class MainActivity extends AppCompatActivity {
         Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
         setupCard.addView(webhookBtn, spacedLp(dp(10)));
 
+        Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
+        setupCard.addView(activityLogBtn, spacedLp(dp(10)));
+
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
         delayLabel.setText("Delay AUTO LOGIN (detik)");
@@ -299,25 +302,22 @@ public class MainActivity extends AppCompatActivity {
         row2Lp.bottomMargin = dp(16);
         root.addView(row2, row2Lp);
 
-        // ---- Save AUTH ----
+        // Actions row 3: SIMPAN AUTH + MASUK EFOOTBALL
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
         Button saveAuthBtn = primaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
-        LinearLayout.LayoutParams saveAuthLp = fullLp();
-        saveAuthLp.bottomMargin = dp(8);
-        root.addView(saveAuthBtn, saveAuthLp);
+        row3.addView(saveAuthBtn, weightLp(dp(8), 0));
 
-        // ---- Activity Log ----
-        Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
-        LinearLayout.LayoutParams activityLogLp = fullLp();
-        activityLogLp.bottomMargin = dp(16);
-        root.addView(activityLogBtn, activityLogLp);
+        Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> {
+            stopAutoLogin();
+            clearWorkflow();
+            launchGame();
+        });
+        row3.addView(enterBtn, weightLp(dp(8), 1));
 
-        // ---- Enter game (big primary) ----
-        Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> { stopAutoLogin(); clearWorkflow(); launchGame(); });
-        enterBtn.setTextSize(15);
-        LinearLayout.LayoutParams enterLp = fullLp();
-        enterLp.topMargin = dp(6);
-        enterLp.height = dp(52);
-        root.addView(enterBtn, enterLp);
+        LinearLayout.LayoutParams row3Lp = fullLp();
+        row3Lp.bottomMargin = dp(16);
+        root.addView(row3, row3Lp);
 
         // ---- Status ----
         status = new TextView(this);
