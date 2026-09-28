@@ -60,7 +60,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
     private static final String KEY_AUTO_LOGIN_INDEX = "auto_login_index";
     private static final String KEY_AUTO_LOGIN_PENDING = "auto_login_pending";
-    private static final String KEY_FAVORITES = "favorite_accounts";
     private static final String MODE_AUTO_LOGIN = "auto_login";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
     private static final int MAX_ACTIVITY_LOGS = 300;
@@ -72,10 +71,8 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
     private TextView status;
-    private TextView accountsText;
-    private ListView accountList;
+    private Account selectedAccount;
     private final ArrayList<Account> accounts = new ArrayList<>();
-    private final ArrayList<Account> filteredAccounts = new ArrayList<>();
     private final ArrayList<Account> autoLoginAccounts = new ArrayList<>();
     private boolean workflowLaunchPending = false;
     private final Handler autoLoginHandler = new Handler(Looper.getMainLooper());
@@ -83,7 +80,6 @@ public class MainActivity extends AppCompatActivity {
     private int autoLoginIndex = 0;
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
-    private String accountFilter = "";
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -266,37 +262,11 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(setupCard, cardLp());
 
-        // ---- Akun (main focus) ----
-        accountsText = new TextView(this);
-        accountsText.setText("Akun: 0 ditemukan");
-        accountsText.setTextColor(color(R.color.textSecondary));
-        accountsText.setTextSize(13);
-        accountsText.setPadding(0, dp(4), 0, dp(8));
-        root.addView(accountsText, fullLp());
-
-        // Search input
-        EditText searchInput = new EditText(this);
-        searchInput.setHint("Cari akun...");
-        searchInput.setSingleLine(true);
-        styleInput(searchInput);
-        searchInput.addTextChangedListener(new android.text.TextWatcher() {
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int count) { filterAccounts(s.toString()); }
-            public void afterTextChanged(android.text.Editable s) {}
-        });
-        LinearLayout.LayoutParams searchLp = fullLp();
-        searchLp.bottomMargin = dp(8);
-        root.addView(searchInput, searchLp);
-
-        accountList = new ListView(this);
-        accountList.setDivider(null);
-        accountList.setDividerHeight(0);
-        accountList.setBackgroundColor(Color.TRANSPARENT);
-        accountList.setPadding(0, 0, 0, 0);
-        LinearLayout.LayoutParams accountListLp = fullLp();
-        accountListLp.height = dp(300);
-        accountListLp.bottomMargin = dp(12);
-        root.addView(accountList, accountListLp);
+        // ---- Daftar akun ----
+        Button accountListBtn = secondaryButton("DAFTAR AKUN", v -> showAccountListDialog());
+        LinearLayout.LayoutParams accountListBtnLp = fullLp();
+        accountListBtnLp.bottomMargin = dp(16);
+        root.addView(accountListBtn, accountListBtnLp);
 
         // Actions row 1: SWITCH + AUTO LOGIN
         LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
@@ -503,126 +473,55 @@ public class MainActivity extends AppCompatActivity {
             if (sa <= 0 && sb > 0) return 1;
             return a.name.compareToIgnoreCase(b.name);
         });
-        refreshAccountSpinner();
-    }
+    private void showAccountListDialog() {
+        ArrayList<Account> list = new ArrayList<>(accounts);
+        if (list.isEmpty()) {
+            showInfoDialog("DAFTAR AKUN", "Belum ada akun di AUTH Library.");
+            return;
+        }
 
-    private void refreshAccountSpinner() {
-        filteredAccounts.clear();
-        String q = accountFilter == null ? "" : accountFilter.trim().toLowerCase();
-        java.util.LinkedHashSet<String> matchedCategories = new java.util.LinkedHashSet<>();
-        if (!q.isEmpty()) {
-            for (Account a : accounts) {
-                if (a.category.toLowerCase().contains(q)) matchedCategories.add(a.category);
+        ListView listView = new ListView(this);
+        listView.setDivider(null);
+        listView.setDividerHeight(0);
+        listView.setBackgroundColor(Color.TRANSPARENT);
+        listView.setPadding(0, dp(4), 0, dp(4));
+        listView.setAdapter(new BaseAdapter() {
+            public int getCount() { return list.size(); }
+            public Object getItem(int position) { return list.get(position); }
+            public long getItemId(int position) { return position; }
+
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView item = new TextView(MainActivity.this);
+                item.setText(list.get(position).name);
+                item.setTextSize(16);
+                item.setTextColor(color(R.color.textPrimary));
+                item.setGravity(Gravity.CENTER_VERTICAL);
+                item.setPadding(dp(8), 0, dp(8), 0);
+                item.setMinHeight(dp(48));
+                return item;
             }
-        }
-        for (Account a : accounts) {
-            boolean categoryMatch = matchedCategories.contains(a.category);
-            boolean accountMatch = a.name.toLowerCase().contains(q);
-            if (q.isEmpty() || categoryMatch || accountMatch) filteredAccounts.add(a);
-        }
+        });
 
-        if (accountList != null) {
-            accountList.setAdapter(new AccountListAdapter());
-        }
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("DAFTAR AKUN")
+            .setView(listView)
+            .setNegativeButton("TUTUP", null)
+            .create();
 
-        if (q.isEmpty()) {
-            accountsText.setText("Akun: " + accounts.size() + " ditemukan");
-        } else {
-            accountsText.setText("Akun: " + filteredAccounts.size() + " / " + accounts.size() + " cocok");
-        }
-    }
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            selectedAccount = list.get(position);
+            notifySelectedAccount(selectedAccount);
+            dialog.dismiss();
+        });
 
-    private void filterAccounts(String query) {
-        accountFilter = query;
-        refreshAccountSpinner();
-    }
-
-    private boolean isFavorite(Account account) {
-        java.util.Set<String> favorites = prefs.getStringSet(KEY_FAVORITES, Collections.emptySet());
-        return favorites != null && favorites.contains(accountKey(account));
-    }
-
-    private void toggleFavorite(Account account) {
-        java.util.Set<String> old = prefs.getStringSet(KEY_FAVORITES, Collections.emptySet());
-        java.util.HashSet<String> updated = new java.util.HashSet<>();
-        if (old != null) updated.addAll(old);
-        String key = accountKey(account);
-        if (!updated.remove(key)) updated.add(key);
-        prefs.edit().putStringSet(KEY_FAVORITES, updated).apply();
-        refreshAccountSpinner();
-    }
-
-    private int dpList(int value) {
-        return dp(value);
-    }
-
-    private class AccountListAdapter extends BaseAdapter {
-        private final ArrayList<Object> rows = new ArrayList<>();
-
-        AccountListAdapter() {
-            String lastCategory = null;
-            for (Account a : filteredAccounts) {
-                if (lastCategory == null || !lastCategory.equalsIgnoreCase(a.category)) {
-                    rows.add(a.category);
-                    lastCategory = a.category;
-                }
-                rows.add(a);
-            }
-        }
-
-        public int getCount() { return rows.size(); }
-        public Object getItem(int position) { return rows.get(position); }
-        public long getItemId(int position) { return position; }
-
-        public View getView(int position, View convertView, ViewGroup parent) {
-            Object row = rows.get(position);
-            if (row instanceof String) {
-                TextView header = new TextView(MainActivity.this);
-                header.setText(((String) row).toUpperCase(Locale.ROOT));
-                header.setTextSize(11);
-                header.setTypeface(Typeface.DEFAULT_BOLD);
-                header.setTextColor(color(R.color.textSecondary));
-                header.setPadding(dp(4), dp(10), dp(4), dp(5));
-                return header;
-            }
-
-            Account account = (Account) row;
-            LinearLayout item = new LinearLayout(MainActivity.this);
-            item.setOrientation(LinearLayout.HORIZONTAL);
-            item.setGravity(Gravity.CENTER_VERTICAL);
-            item.setPadding(dp(10), dp(8), dp(10), dp(8));
-            item.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
-
-            TextView name = new TextView(MainActivity.this);
-            name.setText((isFavorite(account) ? "★ " : "") + account.name);
-            name.setTextSize(14);
-            name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(color(R.color.textPrimary));
-            item.addView(name, new LinearLayout.LayoutParams(0, dp(46), 1f));
-
-            TextView asset = new TextView(MainActivity.this);
-            asset.setText(String.valueOf(nameToSequence(account.name) > 0 ? nameToSequence(account.name) : filteredAccounts.indexOf(account) + 1));
-            asset.setGravity(Gravity.CENTER);
-            asset.setTextSize(13);
-            asset.setTextColor(color(R.color.textSecondary));
-            LinearLayout.LayoutParams assetLp = new LinearLayout.LayoutParams(dp(52), dp(46));
-            item.addView(asset, assetLp);
-
-            item.setOnClickListener(v -> {
-                accountList.setTag(account);
-                notifySelectedAccount(account);
-            });
-            item.setOnLongClickListener(v -> {
-                toggleFavorite(account);
-                return true;
-            });
-            return item;
-        }
+        dialog.show();
+        int listHeight = Math.min(dp(520), dp(48) * list.size());
+        listView.getLayoutParams().height = listHeight;
+        listView.requestLayout();
     }
 
     private Account selectedAccount() {
-        Object tag = accountList == null ? null : accountList.getTag();
-        return tag instanceof Account ? (Account) tag : null;
+        return selectedAccount;
     }
 
     private void notifySelectedAccount(Account account) {
@@ -655,9 +554,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void switchSelected() {
         stopAutoLogin(); clearWorkflow();
-        if (filteredAccounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
+        if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
         Account selected = selectedAccount();
-        if (selected != null && filteredAccounts.contains(selected)) {
+        if (selected != null && accounts.contains(selected)) {
             if (copyAuth(selected)) {
                 updateStatus("✓ AUTH diganti: " + selected.category + " / " + selected.name);
             }
@@ -1398,96 +1297,3 @@ public class MainActivity extends AppCompatActivity {
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
         format.setTimeZone(TimeZone.getTimeZone("UTC"));
         return format.format(new Date());
-    }
-
-    private boolean isLoginVerifiedToday(Account account){
-        String today = utcDate();
-        String key = accountKey(account) + "\u001F" + today;
-        java.util.Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
-        return verified != null && verified.contains(key);
-    }
-
-    private void markLoginVerifiedToday(Account account){
-        String key = accountKey(account) + "\u001F" + utcDate();
-        java.util.Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
-        java.util.HashSet<String> updated = new java.util.HashSet<>();
-        if(old != null) updated.addAll(old);
-        // Keep today's records plus recent entries; stale records are harmless but pruned here.
-        String today = utcDate();
-        java.util.Iterator<String> it = updated.iterator();
-        while(it.hasNext()){
-            String entry = it.next();
-            int split = entry.lastIndexOf("\u001F");
-            if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
-        }
-        updated.add(key);
-        prefs.edit().putStringSet(KEY_LOGIN_VERIFIED, updated).apply();
-    }
-
-    private long getAutoLoginDelayMs(){
-        try{
-            int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
-            seconds=Math.max(2,seconds);
-            prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
-            return seconds*1000L;
-        }catch(Exception e){
-            return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
-        }
-    }
-
-    private void stopAutoLogin(){
-        boolean wasRunning=autoLoginRunning;
-        autoLoginRunning=false;
-        autoLoginHandler.removeCallbacksAndMessages(null);
-        workflowLaunchPending=false;
-        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
-        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
-        if(wasRunning){
-            addActivityLog("AUTO LOGIN dihentikan.");
-            updateStatus("AUTO LOGIN dihentikan.");
-            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
-        }
-    }
-
-    private boolean copyAuth(Account account){
-        DocumentFile target=getTree(KEY_TARGET);
-        if(!validDir(target)){
-            addActivityLog("COPY AUTH gagal: folder target belum dipilih.");
-            updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
-            return false;
-        }
-        DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();
-        boolean ok=copyFile(account.file,target,AUTH_FILE);
-        addActivityLog("COPY AUTH " + (ok ? "berhasil: " : "gagal: ") + account.category + " / " + account.name);
-        return ok;
-    }
-    private boolean copyFile(DocumentFile source,DocumentFile parent,String name){DocumentFile dest=parent.findFile(name);if(dest!=null)dest.delete();dest=parent.createFile("application/octet-stream",name);if(dest==null)return false;try(InputStream in=getContentResolver().openInputStream(source.getUri());OutputStream out=getContentResolver().openOutputStream(dest.getUri(),"w")){if(in==null||out==null)throw new Exception("stream null");byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();return true;}catch(Exception e){dest.delete();return false;}}
-    private boolean launchGame(){
-        Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
-        if(i==null){
-            addActivityLog("Gagal membuka eFootball: package " + PACKAGE + " tidak ditemukan.");
-            updateStatus("Package "+PACKAGE+" tidak ditemukan.");
-            return false;
-        }
-        try {
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            addActivityLog("Berhasil membuka eFootball.");
-            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
-            return true;
-        } catch(Exception e) {
-            addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
-            updateStatus("Gagal membuka eFootball.");
-            return false;
-        }
-    }
-    private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
-    private String getMode(){return prefs.getString(KEY_MODE,MODE_NONE);}
-    private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
-    private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
-    private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
-    private void updateStatus(String s){if(status!=null)status.setText(s);}
-    @Override protected void onDestroy(){saveAutoLoginDelay(); if(!isChangingConfigurations()) stopAutoLogin(); super.onDestroy();}
-
-    static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
-}
