@@ -2,7 +2,7 @@ name: Android Release
 
 on:
   push:
-    branches: [ main, fix/create-account-resume-v1.3.3 ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -34,19 +34,7 @@ jobs:
       - name: Create or use stable signing key
         shell: bash
         run: |
-          if [ ! -s signing/evault-debug.jks ]; then
-            echo "Generating new signing key..."
-            mkdir -p signing
-            keytool -genkeypair               -keystore signing/evault-debug.jks               -storepass android               -keypass android               -alias androiddebugkey               -keyalg RSA               -keysize 2048               -validity 10000               -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add signing/evault-debug.jks
-            git commit -m "chore: add stable signing key for consistent APK signatures"
-            git push
-          else
-            echo "Using existing signing key from repo"
-          fi
-          test -s signing/evault-debug.jks
+          test -s signing/evault-debug.jks || { echo 'Stable signing key is missing'; exit 1; }
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -57,15 +45,9 @@ jobs:
       - name: Verify release version
         shell: bash
         run: |
-          python3 - <<'PY'
-          import re
-          s=open('app/build.gradle.kts').read()
-          code=re.search(r'versionCode\s*=\s*(\d+)', s).group(1)
-          name=re.search(r'versionName\s*=\s*"([^"]+)"', s).group(1)
-          assert code == '25', f'Expected versionCode 25, got {code}'
-          assert name == '1.3.3', f'Expected versionName 1.3.3, got {name}'
-          print(f'Version verified: {name} ({code})')
-          PY
+          grep -q 'versionCode = 26' app/build.gradle.kts
+          grep -q 'versionName = "1.3.4"' app/build.gradle.kts
+          echo 'Version verified: 1.3.4 (26)'
 
       - name: Build installable APK
         run: ./gradlew assembleDebug --stacktrace
@@ -74,23 +56,21 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.3.3.apk
+          cp "$apk" eVault-v1.3.4.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.3.3
-          path: eVault-v1.3.3.apk
+          name: eVault-v1.3.4
+          path: eVault-v1.3.4.apk
           if-no-files-found: error
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.3
-          name: eVault v1.3.3
+          tag_name: v1.3.4
+          name: eVault v1.3.4
           generate_release_notes: true
           make_latest: true
-          files: eVault-v1.3.3.apk
-# v1.3.3 release trigger checkpoint
-# v1.3.3 rebuild trigger
+          files: eVault-v1.3.4.apk
