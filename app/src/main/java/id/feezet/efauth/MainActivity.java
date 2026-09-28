@@ -1063,20 +1063,20 @@ public class MainActivity extends AppCompatActivity {
         DocumentFile library = getTree(KEY_LIBRARY);
         if (!validDir(library)) {
             updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return;
+            return false;
         }
 
         DocumentFile categoryDir = categoryRoot(library, category);
         if (!validDir(categoryDir)) {
             updateStatus("Gagal membuka kategori: " + category);
-            return;
+            return false;
         }
 
         DocumentFile existingFolder = categoryDir.findFile(name);
         if (existingFolder != null && existingFolder.isDirectory()) {
             updateStatus("Akun '" + name + "' sudah ada di kategori '" + category + "'.");
             addActivityLog("SAVE AUTH dibatalkan: akun sudah ada -> " + category + " / " + name);
-            return;
+            return false;
         }
 
         DocumentFile targetFolder = existingFolder;
@@ -1085,21 +1085,21 @@ public class MainActivity extends AppCompatActivity {
         }
         if (!validDir(targetFolder)) {
             updateStatus("Gagal membuat folder akun: " + name);
-            return;
+            return false;
         }
 
         DocumentFile existingAuth = targetFolder.findFile(AUTH_FILE);
         if (existingAuth != null && existingAuth.isFile()) {
             updateStatus("Akun '" + name + "' sudah ada dan tidak ditimpa.");
             addActivityLog("SAVE AUTH dibatalkan: file AUTH sudah ada -> " + category + " / " + name);
-            return;
+            return false;
         }
 
         boolean ok = copyFile(sourceAuth, targetFolder, AUTH_FILE);
         if (!ok) {
             updateStatus("Gagal menyimpan AUTH.");
             addActivityLog("SAVE AUTH gagal: " + category + " / " + name);
-            return;
+            return false;
         }
 
         loadAccounts();
