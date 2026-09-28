@@ -1106,6 +1106,7 @@ public class MainActivity extends AppCompatActivity {
         updateStatus("✓ AUTH berhasil disimpan: " + category + " / " + name);
         addActivityLog("SAVE AUTH berhasil: " + category + " / " + name);
         notifyDiscord("💾 **AUTH DISIMPAN**\\nKategori: **" + category + "**\\nAkun: **" + name + "**");
+        return true;
     }
 
     private boolean cloudConfigured() {
