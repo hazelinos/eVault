@@ -52,8 +52,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_NAMING = "create_naming";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
-    private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
-    private static final String KEY_CLOUD_TOKEN = "cloud_token";
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -230,12 +228,6 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(library, spacedLp(dp(4)));
         Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
         setupCard.addView(target, spacedLp(dp(10)));
-        Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
-        setupCard.addView(webhookBtn, spacedLp(dp(10)));
-        Button cloudSetupBtn = secondaryButton("☁️ CLOUD SETUP", v -> showCloudSetupDialog());
-        setupCard.addView(cloudSetupBtn, spacedLp(dp(10)));
-        Button cloudSyncBtn = secondaryButton("☁️ KIRIM LIBRARY KE CLOUD", v -> uploadLocalLibraryToCloud());
-        setupCard.addView(cloudSyncBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -294,12 +286,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams row1Lp = fullLp();
         row1Lp.bottomMargin = dp(8);
         root.addView(row1, row1Lp);
-
-        // Actions row 3: SIMPAN AUTH
-        Button saveAuthBtn = secondaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
-        LinearLayout.LayoutParams saveAuthLp = fullLp();
-        saveAuthLp.bottomMargin = dp(12);
-        root.addView(saveAuthBtn, saveAuthLp);
 
         // Actions row 2: HAPUS DATA + BUAT BARU
         LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
@@ -799,299 +785,6 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    private void showDiscordWebhookDialog(){
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("https://discord.com/api/webhooks/...");
-        input.setText(prefs.getString(KEY_DISCORD_WEBHOOK, ""));
-        styleInput(input);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), dp(8), dp(8), dp(4));
-        box.addView(input, fullLp());
-
-        new AlertDialog.Builder(this)
-            .setTitle("DISCORD WEBHOOK")
-            .setMessage("Masukkan URL webhook Discord untuk menerima notifikasi eVault.")
-            .setView(box)
-            .setNegativeButton("BATAL", null)
-            .setNeutralButton("HAPUS", (d, w) -> {
-                prefs.edit().remove(KEY_DISCORD_WEBHOOK).apply();
-                updateStatus("Discord webhook dihapus.");
-            })
-            .setPositiveButton("SIMPAN & TEST", (d, w) -> {
-                String url = input.getText().toString().trim();
-                if (!DiscordWebhook.isValidUrl(url)) {
-                    updateStatus("URL Discord webhook tidak valid.");
-                    return;
-                }
-                prefs.edit().putString(KEY_DISCORD_WEBHOOK, url).apply();
-                updateStatus("Mengirim test webhook...");
-                notifyDiscord("🔔 **eVault**\nWebhook berhasil terhubung.");
-            })
-            .show();
-    }
-
-    private void notifyDiscord(String message){
-        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "").trim();
-        if (!url.isEmpty()) DiscordWebhook.send(url, message);
-    }
-
-    private String cloudToken() {
-        return prefs.getString(KEY_CLOUD_TOKEN, "").trim();
-    }
-
-    private String cloudDeviceId() {
-        return Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-    }
-
-    private void showCloudSetupDialog() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("ev_...");
-        input.setText(cloudToken());
-        styleInput(input);
-
-        new AlertDialog.Builder(this)
-            .setTitle("☁️ CLOUD SETUP")
-            .setMessage("Masukkan Cloud Token dari Telegram. Token disimpan lokal di eVault dan tidak berisi BOT_TOKEN.")
-            .setView(input)
-            .setNegativeButton("BATAL", null)
-            .setNeutralButton("PUTUSKAN", (d, w) -> {
-                prefs.edit().remove(KEY_CLOUD_TOKEN).apply();
-                updateStatus("Cloud Token dihapus dari eVault.");
-            })
-            .setPositiveButton("HUBUNGKAN & TEST", (d, w) -> {
-                String token = input.getText().toString().trim();
-                if (token.isEmpty()) {
-                    updateStatus("Cloud Token belum diisi.");
-                    return;
-                }
-                prefs.edit().putString(KEY_CLOUD_TOKEN, token).apply();
-                updateStatus("Menguji koneksi Cloud...");
-                new Thread(() -> {
-                    try {
-                        String response = CloudApi.account(token, cloudDeviceId());
-                        runOnUiThread(() -> {
-                            addActivityLog("CLOUD terhubung.");
-                            updateStatus("✓ Cloud terhubung.");
-                        });
-                    } catch (Exception e) {
-                        prefs.edit().remove(KEY_CLOUD_TOKEN).apply();
-                        runOnUiThread(() -> updateStatus("Cloud gagal terhubung: " + e.getMessage()));
-                    }
-                }).start();
-            })
-            .show();
-    }
-
-    private void uploadLocalLibraryToCloud() {
-        String token = cloudToken();
-        if (token.isEmpty()) {
-            showCloudSetupDialog();
-            return;
-        }
-        DocumentFile library = getTree(KEY_LIBRARY);
-        if (!validDir(library)) {
-            updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return;
-        }
-
-        ArrayList<DocumentFile> authFiles = new ArrayList<>();
-        ArrayList<String> categories = new ArrayList<>();
-        ArrayList<String> names = new ArrayList<>();
-        for (DocumentFile category : library.listFiles()) {
-            if (!category.isDirectory()) continue;
-            for (DocumentFile account : category.listFiles()) {
-                if (!account.isDirectory()) continue;
-                DocumentFile auth = account.findFile(AUTH_FILE);
-                if (auth != null && auth.isFile()) {
-                    authFiles.add(auth);
-                    categories.add(nameOf(category));
-                    names.add(nameOf(account));
-                }
-            }
-        }
-
-        if (authFiles.isEmpty()) {
-            updateStatus("Library tidak memiliki AUTH yang bisa dikirim.");
-            return;
-        }
-
-        updateStatus("☁️ Mengirim Library: 0/" + authFiles.size());
-        addActivityLog("CLOUD upload Library dimulai: " + authFiles.size() + " file.");
-
-        new Thread(() -> {
-            int ok = 0;
-            for (int i = 0; i < authFiles.size(); i++) {
-                final int index = i;
-                try {
-                    byte[] data = readFileBytes(authFiles.get(i));
-                    CloudApi.uploadAuth(token, cloudDeviceId(), categories.get(i), names.get(i), data);
-                    ok++;
-                    int done = ok;
-                    runOnUiThread(() -> updateStatus("☁️ Upload Library: " + done + "/" + authFiles.size()));
-                } catch (Exception e) {
-                    String cat = categories.get(index);
-                    String name = names.get(index);
-                    runOnUiThread(() -> addActivityLog("CLOUD upload gagal: " + cat + " / " + name + " — " + e.getMessage()));
-                }
-            }
-            int uploaded = ok;
-            runOnUiThread(() -> {
-                addActivityLog("CLOUD upload Library selesai: " + uploaded + "/" + authFiles.size());
-                updateStatus("✓ Library terkirim ke Cloud: " + uploaded + "/" + authFiles.size());
-            });
-        }).start();
-    }
-
-    private byte[] readFileBytes(DocumentFile file) throws IOException {
-        try (InputStream in = getContentResolver().openInputStream(file.getUri());
-             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-            if (in == null) throw new IOException("AUTH tidak bisa dibaca.");
-            byte[] buffer = new byte[8192];
-            int n;
-            while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
-            return out.toByteArray();
-        }
-    }
-
-    private void showSaveAuthDialog() {
-        DocumentFile target = getTree(KEY_TARGET);
-        if (!validDir(target)) {
-            updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
-            return;
-        }
-
-        DocumentFile sourceAuth = target.findFile(AUTH_FILE);
-        if (sourceAuth == null || !sourceAuth.isFile()) {
-            updateStatus("Tidak ada AUTH yang bisa disimpan di folder target.");
-            return;
-        }
-
-        DocumentFile library = getTree(KEY_LIBRARY);
-        if (!validDir(library)) {
-            updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return;
-        }
-
-        List<String> categories = getLibraryCategories();
-        if (categories.isEmpty()) {
-            showSaveAuthNameDialog("AKUN", sourceAuth);
-            return;
-        }
-
-        final String[] items = new String[categories.size() + 1];
-        for (int i = 0; i < categories.size(); i++) {
-            items[i] = categories.get(i);
-        }
-        items[categories.size()] = "BUAT KATEGORI BARU...";
-
-        new AlertDialog.Builder(this)
-            .setTitle("PILIH KATEGORI")
-            .setItems(items, (d, which) -> {
-                if (which == items.length - 1) {
-                    showCreateSaveCategoryDialog(sourceAuth);
-                } else {
-                    showSaveAuthNameDialog(categories.get(which), sourceAuth);
-                }
-            })
-            .setNegativeButton("BATAL", null)
-            .show();
-    }
-
-    private void showCreateSaveCategoryDialog(final DocumentFile sourceAuth) {
-        final EditText input = new EditText(this);
-        input.setHint("Nama kategori baru");
-        styleInput(input);
-
-        new AlertDialog.Builder(this)
-            .setTitle("KATEGORI BARU")
-            .setMessage("Masukkan nama kategori untuk menyimpan AUTH.")
-            .setView(input)
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("LANJUT", (d, w) -> {
-                String category = input.getText().toString().trim();
-                if (category.isEmpty()) {
-                    updateStatus("Nama kategori tidak boleh kosong.");
-                    return;
-                }
-                showSaveAuthNameDialog(category, sourceAuth);
-            })
-            .show();
-    }
-
-    private void showSaveAuthNameDialog(final String category, final DocumentFile sourceAuth) {
-        final EditText input = new EditText(this);
-        input.setHint("Nama akun");
-        styleInput(input);
-
-        new AlertDialog.Builder(this)
-            .setTitle("SIMPAN AUTH")
-            .setMessage("Kategori: " + category)
-            .setView(input)
-            .setNegativeButton("BATAL", null)
-            .setPositiveButton("SIMPAN", (d, w) -> {
-                String name = input.getText().toString().trim();
-                if (name.isEmpty()) {
-                    updateStatus("Nama akun tidak boleh kosong.");
-                    return;
-                }
-                saveAuthToLibrary(category, name, sourceAuth);
-            })
-            .show();
-    }
-
-    private void saveAuthToLibrary(String category, String name, DocumentFile sourceAuth) {
-        DocumentFile library = getTree(KEY_LIBRARY);
-        if (!validDir(library)) {
-            updateStatus("Pilih AUTH Library terlebih dahulu.");
-            return;
-        }
-
-        DocumentFile categoryDir = categoryRoot(library, category);
-        if (!validDir(categoryDir)) {
-            updateStatus("Gagal membuka kategori: " + category);
-            return;
-        }
-
-        DocumentFile existingFolder = categoryDir.findFile(name);
-        if (existingFolder != null && existingFolder.isDirectory()) {
-            updateStatus("Akun '" + name + "' sudah ada di kategori '" + category + "'.");
-            addActivityLog("SAVE AUTH dibatalkan: akun sudah ada -> " + category + " / " + name);
-            return;
-        }
-
-        DocumentFile targetFolder = existingFolder;
-        if (targetFolder == null) {
-            targetFolder = categoryDir.createDirectory(name);
-        }
-        if (!validDir(targetFolder)) {
-            updateStatus("Gagal membuat folder akun: " + name);
-            return;
-        }
-
-        DocumentFile existingAuth = targetFolder.findFile(AUTH_FILE);
-        if (existingAuth != null && existingAuth.isFile()) {
-            updateStatus("Akun '" + name + "' sudah ada dan tidak ditimpa.");
-            addActivityLog("SAVE AUTH dibatalkan: file AUTH sudah ada -> " + category + " / " + name);
-            return;
-        }
-
-        boolean ok = copyFile(sourceAuth, targetFolder, AUTH_FILE);
-        if (!ok) {
-            updateStatus("Gagal menyimpan AUTH.");
-            addActivityLog("SAVE AUTH gagal: " + category + " / " + name);
-            return;
-        }
-
-        loadAccounts();
-        updateStatus("✓ AUTH berhasil disimpan: " + category + " / " + name);
-        addActivityLog("SAVE AUTH berhasil: " + category + " / " + name);
-        notifyDiscord("💾 **AUTH DISIMPAN**\\nKategori: **" + category + "**\\nAkun: **" + name + "**");
-    }
-
     private void startAutoLogin(){
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
@@ -1100,13 +793,15 @@ public class MainActivity extends AppCompatActivity {
 
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
+            .setMessage("Pilih akun yang mau diproses:")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
-                "LOGIN YANG BELUM LOGIN HARI INI"
+                "LOGIN YANG BELUM LOGIN HARI INI",
+                "PILIH AKUN"
             }, (d, which) -> {
-                String mode = which == 0 ? "all" : "unverified";
+                String mode = which == 0 ? "all" : (which == 1 ? "unverified" : "single");
                 prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
-                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : (which == 1 ? "BELUM LOGIN HARI INI" : "PILIH AKUN")));
                 showCategoryPickerDialog(categories);
             })
             .setNegativeButton("BATAL", null)
@@ -1133,7 +828,8 @@ public class MainActivity extends AppCompatActivity {
             box.addView(b, spacedLp(dp(6)));
         }
         final AlertDialog dlg = new AlertDialog.Builder(this)
-            .setTitle("PILIH KATEGORI")
+            .setTitle("AUTO LOGIN")
+            .setMessage("Pilih kategori akun untuk auto login:")
             .setView(box)
             .setNegativeButton("BATAL", null)
             .create();
@@ -1185,7 +881,6 @@ public class MainActivity extends AppCompatActivity {
 
         autoLoginRunning=true;
         autoLoginIndex=0;
-        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + category + "**\nAkun: **" + autoLoginAccounts.size() + "**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_CATEGORY, category)
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
@@ -1232,7 +927,6 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.add(account);
         autoLoginRunning = true;
         autoLoginIndex = 0;
-        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + account.category + "**\nAkun: **1**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_MODE, "single")
             .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
@@ -1251,7 +945,6 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
             addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
             updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
-            notifyDiscord("✅ **AUTO LOGIN SELESAI**\nDiproses: **"+total+"/"+total+"**");
             return;
         }
 
@@ -1259,10 +952,14 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
-        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
 
         if(!copyAuth(account)){
             autoLoginRunning=false;
+            addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
+            updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
+            return;
+        }
+
         if (!launchGame()) {
             autoLoginRunning=false;
             addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
