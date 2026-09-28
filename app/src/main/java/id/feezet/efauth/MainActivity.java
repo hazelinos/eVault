@@ -17,6 +17,9 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.BaseAdapter;
+import android.view.ViewGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -57,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
     private static final String KEY_AUTO_LOGIN_INDEX = "auto_login_index";
     private static final String KEY_AUTO_LOGIN_PENDING = "auto_login_pending";
+    private static final String KEY_FAVORITES = "favorite_accounts";
     private static final String MODE_AUTO_LOGIN = "auto_login";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
     private static final int MAX_ACTIVITY_LOGS = 300;
@@ -69,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private TextView status;
     private TextView accountsText;
-    private Spinner accountSpinner;
+    private ListView accountList;
     private final ArrayList<Account> accounts = new ArrayList<>();
     private final ArrayList<Account> filteredAccounts = new ArrayList<>();
     private final ArrayList<Account> autoLoginAccounts = new ArrayList<>();
@@ -284,12 +288,15 @@ public class MainActivity extends AppCompatActivity {
         searchLp.bottomMargin = dp(8);
         root.addView(searchInput, searchLp);
 
-        accountSpinner = new Spinner(this);
-        accountSpinner.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
-        accountSpinner.setPadding(dp(12), dp(10), dp(12), dp(10));
-        LinearLayout.LayoutParams spinnerLp = fullLp();
-        spinnerLp.bottomMargin = dp(12);
-        root.addView(accountSpinner, spinnerLp);
+        accountList = new ListView(this);
+        accountList.setDivider(null);
+        accountList.setDividerHeight(0);
+        accountList.setBackgroundColor(Color.TRANSPARENT);
+        accountList.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams accountListLp = fullLp();
+        accountListLp.height = dp(300);
+        accountListLp.bottomMargin = dp(12);
+        root.addView(accountList, accountListLp);
 
         // Actions row 1: SWITCH + AUTO LOGIN
         LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
@@ -502,18 +509,124 @@ public class MainActivity extends AppCompatActivity {
     private void refreshAccountSpinner() {
         filteredAccounts.clear();
         String q = accountFilter == null ? "" : accountFilter.trim().toLowerCase();
-        for (Account a : accounts) {
-            String label = (a.category + " / " + a.name).toLowerCase();
-            if (q.isEmpty() || label.contains(q)) filteredAccounts.add(a);
+        java.util.LinkedHashSet<String> matchedCategories = new java.util.LinkedHashSet<>();
+        if (!q.isEmpty()) {
+            for (Account a : accounts) {
+                if (a.category.toLowerCase().contains(q)) matchedCategories.add(a.category);
+            }
         }
-        ArrayList<String> names = new ArrayList<>();
-        for (Account a : filteredAccounts) names.add(a.category + " / " + a.name);
-        accountSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
+        for (Account a : accounts) {
+            boolean categoryMatch = matchedCategories.contains(a.category);
+            boolean accountMatch = a.name.toLowerCase().contains(q);
+            if (q.isEmpty() || categoryMatch || accountMatch) filteredAccounts.add(a);
+        }
+
+        if (accountList != null) {
+            accountList.setAdapter(new AccountListAdapter());
+        }
+
         if (q.isEmpty()) {
             accountsText.setText("Akun: " + accounts.size() + " ditemukan");
         } else {
             accountsText.setText("Akun: " + filteredAccounts.size() + " / " + accounts.size() + " cocok");
         }
+    }
+
+    private void filterAccounts(String query) {
+        accountFilter = query;
+        refreshAccountSpinner();
+    }
+
+    private boolean isFavorite(Account account) {
+        java.util.Set<String> favorites = prefs.getStringSet(KEY_FAVORITES, Collections.emptySet());
+        return favorites != null && favorites.contains(accountKey(account));
+    }
+
+    private void toggleFavorite(Account account) {
+        java.util.Set<String> old = prefs.getStringSet(KEY_FAVORITES, Collections.emptySet());
+        java.util.HashSet<String> updated = new java.util.HashSet<>();
+        if (old != null) updated.addAll(old);
+        String key = accountKey(account);
+        if (!updated.remove(key)) updated.add(key);
+        prefs.edit().putStringSet(KEY_FAVORITES, updated).apply();
+        refreshAccountSpinner();
+    }
+
+    private int dpList(int value) {
+        return dp(value);
+    }
+
+    private class AccountListAdapter extends BaseAdapter {
+        private final ArrayList<Object> rows = new ArrayList<>();
+
+        AccountListAdapter() {
+            String lastCategory = null;
+            for (Account a : filteredAccounts) {
+                if (lastCategory == null || !lastCategory.equalsIgnoreCase(a.category)) {
+                    rows.add(a.category);
+                    lastCategory = a.category;
+                }
+                rows.add(a);
+            }
+        }
+
+        public int getCount() { return rows.size(); }
+        public Object getItem(int position) { return rows.get(position); }
+        public long getItemId(int position) { return position; }
+
+        public View getView(int position, View convertView, ViewGroup parent) {
+            Object row = rows.get(position);
+            if (row instanceof String) {
+                TextView header = new TextView(MainActivity.this);
+                header.setText(((String) row).toUpperCase(Locale.ROOT));
+                header.setTextSize(11);
+                header.setTypeface(Typeface.DEFAULT_BOLD);
+                header.setTextColor(color(R.color.textSecondary));
+                header.setPadding(dp(4), dp(10), dp(4), dp(5));
+                return header;
+            }
+
+            Account account = (Account) row;
+            LinearLayout item = new LinearLayout(MainActivity.this);
+            item.setOrientation(LinearLayout.HORIZONTAL);
+            item.setGravity(Gravity.CENTER_VERTICAL);
+            item.setPadding(dp(10), dp(8), dp(10), dp(8));
+            item.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
+
+            TextView name = new TextView(MainActivity.this);
+            name.setText((isFavorite(account) ? "★ " : "") + account.name);
+            name.setTextSize(14);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTextColor(color(R.color.textPrimary));
+            item.addView(name, new LinearLayout.LayoutParams(0, dp(46), 1f));
+
+            TextView asset = new TextView(MainActivity.this);
+            asset.setText(String.valueOf(nameToSequence(account.name) > 0 ? nameToSequence(account.name) : filteredAccounts.indexOf(account) + 1));
+            asset.setGravity(Gravity.CENTER);
+            asset.setTextSize(13);
+            asset.setTextColor(color(R.color.textSecondary));
+            LinearLayout.LayoutParams assetLp = new LinearLayout.LayoutParams(dp(52), dp(46));
+            item.addView(asset, assetLp);
+
+            item.setOnClickListener(v -> {
+                accountList.setTag(account);
+                notifySelectedAccount(account);
+            });
+            item.setOnLongClickListener(v -> {
+                toggleFavorite(account);
+                return true;
+            });
+            return item;
+        }
+    }
+
+    private Account selectedAccount() {
+        Object tag = accountList == null ? null : accountList.getTag();
+        return tag instanceof Account ? (Account) tag : null;
+    }
+
+    private void notifySelectedAccount(Account account) {
+        updateStatus("Dipilih: " + account.category + " / " + account.name);
     }
 
     private void filterAccounts(String query) {
@@ -548,12 +661,13 @@ public class MainActivity extends AppCompatActivity {
     private void switchSelected() {
         stopAutoLogin(); clearWorkflow();
         if (filteredAccounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
-        int pos = accountSpinner.getSelectedItemPosition();
-        if (pos >= 0 && pos < filteredAccounts.size()) {
-            Account selected = filteredAccounts.get(pos);
+        Account selected = selectedAccount();
+        if (selected != null && filteredAccounts.contains(selected)) {
             if (copyAuth(selected)) {
                 updateStatus("✓ AUTH diganti: " + selected.category + " / " + selected.name);
             }
+        } else {
+            updateStatus("Pilih akun terlebih dahulu.");
         }
     }
 
