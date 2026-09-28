@@ -10,7 +10,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -52,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_NAMING = "create_naming";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
+    private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
     private static final String KEY_LOGIN_VERIFIED = "login_verified";
     private static final String KEY_AUTO_LOGIN_MODE = "auto_login_mode";
     private static final String KEY_AUTO_LOGIN_CATEGORY = "auto_login_category";
@@ -228,6 +228,8 @@ public class MainActivity extends AppCompatActivity {
         setupCard.addView(library, spacedLp(dp(4)));
         Button target = secondaryButton("PILIH FOLDER AUTH EFOOTBALL", v -> chooseTree(pickTarget));
         setupCard.addView(target, spacedLp(dp(10)));
+        Button webhookBtn = secondaryButton("🔔 DISCORD WEBHOOK", v -> showDiscordWebhookDialog());
+        setupCard.addView(webhookBtn, spacedLp(dp(10)));
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -785,6 +787,45 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
+    private void showDiscordWebhookDialog(){
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("https://discord.com/api/webhooks/...");
+        input.setText(prefs.getString(KEY_DISCORD_WEBHOOK, ""));
+        styleInput(input);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(8), dp(8), dp(8), dp(4));
+        box.addView(input, fullLp());
+
+        new AlertDialog.Builder(this)
+            .setTitle("DISCORD WEBHOOK")
+            .setMessage("Masukkan URL webhook Discord untuk menerima notifikasi eVault.")
+            .setView(box)
+            .setNegativeButton("BATAL", null)
+            .setNeutralButton("HAPUS", (d, w) -> {
+                prefs.edit().remove(KEY_DISCORD_WEBHOOK).apply();
+                updateStatus("Discord webhook dihapus.");
+            })
+            .setPositiveButton("SIMPAN & TEST", (d, w) -> {
+                String url = input.getText().toString().trim();
+                if (!DiscordWebhook.isValidUrl(url)) {
+                    updateStatus("URL Discord webhook tidak valid.");
+                    return;
+                }
+                prefs.edit().putString(KEY_DISCORD_WEBHOOK, url).apply();
+                updateStatus("Mengirim test webhook...");
+                notifyDiscord("🔔 **eVault**\nWebhook berhasil terhubung.");
+            })
+            .show();
+    }
+
+    private void notifyDiscord(String message){
+        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "").trim();
+        if (!url.isEmpty()) DiscordWebhook.send(url, message);
+    }
+
     private void startAutoLogin(){
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
@@ -793,15 +834,13 @@ public class MainActivity extends AppCompatActivity {
 
         new AlertDialog.Builder(this)
             .setTitle("AUTO LOGIN")
-            .setMessage("Pilih akun yang mau diproses:")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
-                "LOGIN YANG BELUM LOGIN HARI INI",
-                "PILIH AKUN"
+                "LOGIN YANG BELUM LOGIN HARI INI"
             }, (d, which) -> {
-                String mode = which == 0 ? "all" : (which == 1 ? "unverified" : "single");
+                String mode = which == 0 ? "all" : "unverified";
                 prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
-                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : (which == 1 ? "BELUM LOGIN HARI INI" : "PILIH AKUN")));
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
                 showCategoryPickerDialog(categories);
             })
             .setNegativeButton("BATAL", null)
@@ -828,8 +867,7 @@ public class MainActivity extends AppCompatActivity {
             box.addView(b, spacedLp(dp(6)));
         }
         final AlertDialog dlg = new AlertDialog.Builder(this)
-            .setTitle("AUTO LOGIN")
-            .setMessage("Pilih kategori akun untuk auto login:")
+            .setTitle("PILIH KATEGORI")
             .setView(box)
             .setNegativeButton("BATAL", null)
             .create();
@@ -881,6 +919,7 @@ public class MainActivity extends AppCompatActivity {
 
         autoLoginRunning=true;
         autoLoginIndex=0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + category + "**\nAkun: **" + autoLoginAccounts.size() + "**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_CATEGORY, category)
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
@@ -927,6 +966,7 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.add(account);
         autoLoginRunning = true;
         autoLoginIndex = 0;
+        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + account.category + "**\nAkun: **1**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_MODE, "single")
             .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
@@ -945,6 +985,7 @@ public class MainActivity extends AppCompatActivity {
             prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
             addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
             updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
+            notifyDiscord("✅ **AUTO LOGIN SELESAI**\nDiproses: **"+total+"/"+total+"**");
             return;
         }
 
@@ -952,11 +993,13 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
+        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
 
         if(!copyAuth(account)){
             autoLoginRunning=false;
             addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
             updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
+            notifyDiscord("❌ **AUTO LOGIN GAGAL**\nAkun: **" + account.name + "**\nPenyebab: COPY AUTH gagal.");
             return;
         }
 
@@ -994,7 +1037,15 @@ public class MainActivity extends AppCompatActivity {
     private void confirmAutoLoginSuccess(Account account){
         markLoginVerifiedToday(account);
         addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
-        advanceAutoLoginAfterDelay(account, false);
+        updateStatus("✓ " + account.name + " tercatat sudah login hari ini.");
+
+        new AlertDialog.Builder(this)
+            .setTitle("LANJUT AUTO LOGIN?")
+            .setMessage("Akun " + account.name + " sudah berhasil login dan tercatat hari ini.\n\nLanjut ke akun berikutnya?")
+            .setCancelable(false)
+            .setNegativeButton("STOP", (d, w) -> stopAutoLogin())
+            .setPositiveButton("LANJUT", (d, w) -> advanceAutoLoginAfterDelay(account, false))
+            .show();
     }
 
     private void retryAutoLogin(Account account){
@@ -1080,6 +1131,7 @@ public class MainActivity extends AppCompatActivity {
         if(wasRunning){
             addActivityLog("AUTO LOGIN dihentikan.");
             updateStatus("AUTO LOGIN dihentikan.");
+            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
         }
     }
 
@@ -1107,6 +1159,7 @@ public class MainActivity extends AppCompatActivity {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             addActivityLog("Berhasil membuka eFootball.");
+            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
             return true;
         } catch(Exception e) {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());

@@ -37,7 +37,7 @@ jobs:
           if [ ! -s signing/evault-debug.jks ]; then
             echo "Generating new signing key..."
             mkdir -p signing
-            keytool -genkeypair -keystore signing/evault-debug.jks -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
+            keytool -genkeypair               -keystore signing/evault-debug.jks               -storepass android               -keypass android               -alias androiddebugkey               -keyalg RSA               -keysize 2048               -validity 10000               -dname 'CN=Android Debug, OU=Android, O=Android, L=US, ST=California, C=US'
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add signing/evault-debug.jks
@@ -89,7 +89,8 @@ jobs:
         with:
           tag_name: v1.3.3
           name: eVault v1.3.3
-          generate_release_notes: false
-          body: ""
+          generate_release_notes: true
           make_latest: true
           files: eVault-v1.3.3.apk
+# v1.3.3 release trigger checkpoint
+# v1.3.3 rebuild trigger
