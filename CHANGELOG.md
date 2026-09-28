@@ -9,6 +9,7 @@ All notable changes to eVault are documented here.
 - Stable local eVault core.
 - Local AUTH Library workflow.
 - Save AUTH for the AUTH currently installed in eFootball.
+- Save AUTH keeps the naming dialog open when a duplicate account name is entered.
 - Delete Data, Create Account, Switch Account, Auto Login, Login Verification, and Activity Log.
 - No Cloud integration is included in this release.
 
