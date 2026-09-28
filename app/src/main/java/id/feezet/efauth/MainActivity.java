@@ -810,6 +810,7 @@ public class MainActivity extends AppCompatActivity {
 
         if(uploadCloud){
             DocumentFile savedAuth=folder.findFile(AUTH_FILE);
+            logCloudActivityAsync("CREATE ACCOUNT cloud: " + prefs.getString(KEY_CREATE_CATEGORY,"AKUN") + " / " + current);
             uploadAuthToCloudAsync(prefs.getString(KEY_CREATE_CATEGORY,"AKUN"),current,savedAuth);
             addActivityLog("CREATE ACCOUNT disimpan: LOCAL + CLOUD: "+current);
             updateStatus("✓ "+current+" tersimpan lokal + Cloud.");
@@ -1058,6 +1059,7 @@ public class MainActivity extends AppCompatActivity {
                         DocumentFile accountDir = categoryDir == null ? null : categoryDir.findFile(name);
                         DocumentFile savedAuth = accountDir == null ? null : accountDir.findFile(AUTH_FILE);
                         if (savedAuth != null && savedAuth.isFile()) {
+                            logCloudActivityAsync("SAVE AUTH cloud: " + category + " / " + name);
                             uploadAuthToCloudAsync(category, name, savedAuth);
                             addActivityLog("SAVE AUTH: LOCAL + CLOUD -> " + category + " / " + name);
                         }
@@ -1272,6 +1274,19 @@ public class MainActivity extends AppCompatActivity {
             while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
             return out.toByteArray();
         }
+    }
+
+    private void logCloudActivityAsync(final String message) {
+        if (!cloudConfigured()) return;
+        final String deviceToken = cloudDeviceToken();
+        final String deviceId = cloudDeviceId();
+        cloudExecutor.execute(() -> {
+            try {
+                CloudApi.logActivity(CLOUD_BASE_URL, deviceToken, deviceId, "INFO", message);
+            } catch (Exception ignored) {
+                // Activity reporting must never break the actual eVault operation.
+            }
+        });
     }
 
     private void uploadAuthToCloudAsync(final String category, final String name, final DocumentFile auth) {
