@@ -629,11 +629,6 @@ public class MainActivity extends AppCompatActivity {
         updateStatus("Dipilih: " + account.category + " / " + account.name);
     }
 
-    private void filterAccounts(String query) {
-        accountFilter = query;
-        refreshAccountSpinner();
-    }
-
     private void toggleSetupVisibility() {
         View card = findViewById(setupCardId);
         if (card != null) card.setVisibility(card.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
