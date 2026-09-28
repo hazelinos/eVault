@@ -20,6 +20,10 @@ eVault keeps your AUTH library organized and makes switching between accounts st
 - **Activity Log** — keep a local history of eVault actions.
 - **Persistent Settings** — keep the Auto Login delay between app launches.
 
+## Save AUTH flow
+
+**Save AUTH** stores the AUTH currently installed in the configured eFootball target folder. If no AUTH is installed, eVault shows a message and does not start the save flow. Otherwise, eVault asks for a category or a new category, then asks for the account name. If the name already exists in that category, the same naming dialog stays open so the name can be changed without restarting the flow.
+
 ## Library structure
 
 ~~~text
