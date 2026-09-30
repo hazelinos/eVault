@@ -84,7 +84,7 @@ final class DiscordWebhook {
         body.append("{\"embeds\":[{");
         body.append("\"title\":\"").append(escapeJson(title == null ? "" : title)).append("\",");
         body.append("\"description\":\"").append(escapeJson(description == null ? "" : description)).append("\",");
-        body.append("\"color\":").append(color);
+        if (color > 0) body.append(",\"color\":").append(color);
         if (fieldsJson != null && !fieldsJson.trim().isEmpty()) {
             body.append(",\"fields\":").append(fieldsJson);
         }
