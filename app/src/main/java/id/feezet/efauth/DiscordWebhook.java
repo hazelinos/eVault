@@ -21,33 +21,23 @@ final class DiscordWebhook {
                 || value.startsWith("https://discordapp.com/api/webhooks/"));
     }
 
-    /** Fire-and-forget POST (no message id tracking). Kept for backward compatibility. */
+    /** Fire-and-forget plain message. Kept for backward compatibility. */
     static void send(String webhookUrl, String content) {
         if (!isValidUrl(webhookUrl) || content == null || content.trim().isEmpty()) return;
-        EXECUTOR.execute(() -> request(webhookUrl, "POST", content));
+        EXECUTOR.execute(() -> request(webhookUrl, "POST", content, false));
     }
 
-    /**
-     * Sends a message and reports the created message id via callback (may be null on failure).
-     * Uses ?wait=true so Discord returns the created message object, from which we read "id".
-     * The callback runs on the executor thread.
-     */
     static void sendTransaction(String webhookUrl, String content, Callback callback) {
         if (!isValidUrl(webhookUrl) || content == null || content.trim().isEmpty()) {
             if (callback != null) callback.onResult(null);
             return;
         }
         EXECUTOR.execute(() -> {
-            String id = request(webhookUrl + "?wait=true", "POST", content);
+            String id = request(webhookUrl + "?wait=true", "POST", content, false);
             if (callback != null) callback.onResult(id);
         });
     }
 
-    /**
-     * Edits an existing message. If messageId is null, this is a no-op (we never create a duplicate).
-     * The callback reports whether the edit succeeded; failures are swallowed by the caller as
-     * monitoring-only. The callback runs on the executor thread.
-     */
     static void edit(String webhookUrl, String messageId, String content, Callback callback) {
         if (!isValidUrl(webhookUrl) || messageId == null || messageId.isEmpty()
                 || content == null || content.trim().isEmpty()) {
@@ -55,12 +45,54 @@ final class DiscordWebhook {
             return;
         }
         EXECUTOR.execute(() -> {
-            String id = request(webhookUrl + "/messages/" + messageId, "PATCH", content);
+            String id = request(webhookUrl + "/messages/" + messageId, "PATCH", content, false);
             if (callback != null) callback.onResult(id);
         });
     }
 
-    private static String request(String url, String method, String content) {
+    /** Sends one Discord embed and returns its message id. */
+    static void sendEmbedTransaction(String webhookUrl, String title, String description,
+                                      int color, String fieldsJson, Callback callback) {
+        if (!isValidUrl(webhookUrl)) {
+            if (callback != null) callback.onResult(null);
+            return;
+        }
+        EXECUTOR.execute(() -> {
+            String payload = buildEmbedPayload(title, description, color, fieldsJson);
+            String id = request(webhookUrl + "?wait=true", "POST", payload, true);
+            if (callback != null) callback.onResult(id);
+        });
+    }
+
+    /** Replaces the existing webhook message with one embed. */
+    static void editEmbed(String webhookUrl, String messageId, String title, String description,
+                          int color, String fieldsJson, Callback callback) {
+        if (!isValidUrl(webhookUrl) || messageId == null || messageId.isEmpty()) {
+            if (callback != null) callback.onResult(null);
+            return;
+        }
+        EXECUTOR.execute(() -> {
+            String payload = buildEmbedPayload(title, description, color, fieldsJson);
+            String id = request(webhookUrl + "/messages/" + messageId, "PATCH", payload, true);
+            if (callback != null) callback.onResult(id);
+        });
+    }
+
+    private static String buildEmbedPayload(String title, String description,
+                                             int color, String fieldsJson) {
+        StringBuilder body = new StringBuilder();
+        body.append("{\"embeds\":[{");
+        body.append("\"title\":\"").append(escapeJson(title == null ? "" : title)).append("\",");
+        body.append("\"description\":\"").append(escapeJson(description == null ? "" : description)).append("\",");
+        body.append("\"color\":").append(color);
+        if (fieldsJson != null && !fieldsJson.trim().isEmpty()) {
+            body.append(",\"fields\":").append(fieldsJson);
+        }
+        body.append("}]}");
+        return body.toString();
+    }
+
+    private static String request(String url, String method, String payload, boolean rawJson) {
         HttpURLConnection connection = null;
         try {
             URL target = new URL(url);
@@ -70,7 +102,9 @@ final class DiscordWebhook {
             connection.setReadTimeout(8000);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            String body = "{\"content\":\"" + escapeJson(content) + "\"}";
+            String body = rawJson
+                    ? payload
+                    : "{\"content\":\"" + escapeJson(payload) + "\"}";
             try (OutputStream out = connection.getOutputStream()) {
                 out.write(body.getBytes(StandardCharsets.UTF_8));
             }
@@ -96,7 +130,6 @@ final class DiscordWebhook {
         return sb.toString();
     }
 
-    /** Extracts the "id" field from a minimal Discord message JSON response. */
     private static String extractId(String json) {
         if (json == null) return null;
         int key = json.indexOf("\"id\"");
@@ -114,7 +147,8 @@ final class DiscordWebhook {
         return value.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\r", "\\r")
-                .replace("\n", "\\n");
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
     }
 
     interface Callback {
