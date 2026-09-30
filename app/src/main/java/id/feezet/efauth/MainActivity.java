@@ -85,7 +85,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AL_FINISHED_AT = "al_finished_at";
     private static final String KEY_AL_ACCOUNTS = "al_accounts";
     private static final String AL_STATUS_RUNNING = "RUNNING";
-    private static final String AL_STATUS_PAUSED = "PAUSED";
+    private static final String AL_STATUS_STOPPED = "STOPPED";
+    private static final String AL_STATUS_LEGACY_PAUSED = "PAUSED";
     private static final String AL_STATUS_COMPLETED = "COMPLETED";
     private static final String AL_STATUS_FAILED = "FAILED";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
@@ -170,6 +171,9 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (AL_STATUS_LEGACY_PAUSED.equals(prefs.getString(KEY_AL_STATUS, ""))) {
+            prefs.edit().putString(KEY_AL_STATUS, AL_STATUS_STOPPED).apply();
+        }
         buildUi();
         loadAccounts();
     }
@@ -1315,7 +1319,14 @@ public class MainActivity extends AppCompatActivity {
                 }
                 prefs.edit().putString(KEY_DISCORD_WEBHOOK, url).apply();
                 updateStatus("Mengirim test webhook...");
-                notifyDiscord("🔔 **eVault**\nWebhook berhasil terhubung.");
+                DiscordWebhook.sendEmbedTransaction(
+                    url,
+                    "🔔 eVault — WEBHOOK",
+                    "Webhook berhasil terhubung.",
+                    0x5865F2,
+                    "[{\"name\":\"Status\",\"value\":\"🟢 CONNECTED\",\"inline\":true},{\"name\":\"Package\",\"value\":\"" + PACKAGE + "\",\"inline\":true}]",
+                    null
+                );
             })
             .show();
     }
@@ -1352,8 +1363,10 @@ public class MainActivity extends AppCompatActivity {
         // block or fail the login process; the message id stays null and edits are skipped.
         String url = currentWebhookUrl();
         if (!url.isEmpty()) {
-            DiscordWebhook.sendTransaction(url, renderWebhookProgress(AL_STATUS_RUNNING, null), id -> {
-                if (id != null) prefs.edit().putString(KEY_AL_WEBHOOK_MSG_ID, id).apply();
+            renderWebhookEmbedData(AL_STATUS_RUNNING, null, data -> {
+                DiscordWebhook.sendEmbedTransaction(url, data.title, data.description, data.color, data.fieldsJson, id -> {
+                    if (id != null) prefs.edit().putString(KEY_AL_WEBHOOK_MSG_ID, id).apply();
+                });
             });
         }
     }
@@ -1365,7 +1378,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean hasActiveSession(){
         String status = prefs.getString(KEY_AL_STATUS, "");
-        return AL_STATUS_RUNNING.equals(status) || AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status);
+        return AL_STATUS_RUNNING.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
     }
 
     private void persistProgress(String status, String current, String next, String error){
@@ -1380,7 +1393,7 @@ public class MainActivity extends AppCompatActivity {
             .putString(KEY_AL_UPDATED_AT, String.valueOf(System.currentTimeMillis()))
             .apply();
         if (error != null) prefs.edit().putString(KEY_AL_LAST_ERROR, error).apply();
-        if (AL_STATUS_COMPLETED.equals(status) || AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status)) {
+        if (AL_STATUS_COMPLETED.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status)) {
             if (!prefs.contains(KEY_AL_FINISHED_AT) || AL_STATUS_COMPLETED.equals(status))
                 prefs.edit().putString(KEY_AL_FINISHED_AT, String.valueOf(System.currentTimeMillis())).apply();
         }
@@ -1393,7 +1406,9 @@ public class MainActivity extends AppCompatActivity {
         String messageId = prefs.getString(KEY_AL_WEBHOOK_MSG_ID, null);
         if (messageId == null || messageId.isEmpty()) return;
         // Webhook is monitoring-only: ignore/failure silently, never spam retries.
-        DiscordWebhook.edit(url, messageId, renderWebhookProgress(status, null), null);
+        renderWebhookEmbedData(status, null, data ->
+            DiscordWebhook.editEmbed(url, messageId, data.title, data.description, data.color, data.fieldsJson, null)
+        );
     }
 
     private String nextAccountName(){
@@ -1404,60 +1419,102 @@ public class MainActivity extends AppCompatActivity {
         return "-";
     }
 
-    private String renderWebhookProgress(String status, String errorReason){
+    private static final class WebhookEmbedData {
+        final String title;
+        final String description;
+        final int color;
+        final String fieldsJson;
+        WebhookEmbedData(String title, String description, int color, String fieldsJson) {
+            this.title = title;
+            this.description = description;
+            this.color = color;
+            this.fieldsJson = fieldsJson;
+        }
+    }
+
+    private interface WebhookEmbedCallback {
+        void onData(WebhookEmbedData data);
+    }
+
+    private void renderWebhookEmbedData(String status, String errorReason, WebhookEmbedCallback callback) {
         int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
         int done = autoLoginSuccessCount + autoLoginFailedCount;
         int percent = progressPercent();
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
-        String bar = progressBar(percent);
-        String started = formatClock(prefs.getString(KEY_AL_STARTED_AT, null));
-        String updated = formatClock(prefs.getString(KEY_AL_UPDATED_AT, null));
-        StringBuilder sb = new StringBuilder();
+        String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
+        String description = done + " / " + total + " accounts · " + percent + "%\n" + progressBar(percent);
+
+        String title;
+        int color;
         if (AL_STATUS_COMPLETED.equals(status)) {
-            sb.append("\u2705 eVault \u2014 AUTO LOGIN COMPLETE\n");
-        } else if (AL_STATUS_PAUSED.equals(status)) {
-            sb.append("\u23F8\uFE0F eVault \u2014 AUTO LOGIN\n");
+            title = "✅ eVault — AUTO LOGIN";
+            color = 0x57F287;
+        } else if (AL_STATUS_STOPPED.equals(status)) {
+            title = "🛑 eVault — AUTO LOGIN";
+            color = 0xED4245;
         } else if (AL_STATUS_FAILED.equals(status)) {
-            sb.append("\u274C eVault \u2014 AUTO LOGIN FAILED\n");
+            title = "❌ eVault — AUTO LOGIN";
+            color = 0xED4245;
         } else {
-            sb.append("\u2601\uFE0F eVault \u2014 AUTO LOGIN\n");
+            title = "▶️ eVault — AUTO LOGIN";
+            color = 0x5865F2;
         }
-        sb.append("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
-        sb.append("Progress\n").append(done).append(" / ").append(total).append(" accounts\n\n");
-        sb.append(bar).append(" ").append(percent).append("%\n\n");
 
-        if (AL_STATUS_PAUSED.equals(status)) {
-            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
-            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
-            sb.append("Stopped at:\n").append(current).append("\n\n");
-            sb.append("Resume from:\n").append(nextAccountName()).append("\n\n");
+        String statusText = AL_STATUS_COMPLETED.equals(status) ? "🟢 COMPLETED"
+                : AL_STATUS_STOPPED.equals(status) ? "🔴 STOPPED"
+                : AL_STATUS_FAILED.equals(status) ? "🔴 FAILED" : "🟢 RUNNING";
+
+        StringBuilder fields = new StringBuilder("[");
+        appendEmbedField(fields, "✅ Successful", String.valueOf(autoLoginSuccessCount), true);
+        appendEmbedField(fields, "❌ Failed", String.valueOf(autoLoginFailedCount), true);
+        appendEmbedField(fields, "⏳ Remaining", String.valueOf(Math.max(0, total - done)), true);
+
+        if (AL_STATUS_STOPPED.equals(status)) {
+            appendEmbedField(fields, "👤 Last", current.isEmpty() ? "-" : current, true);
+            appendEmbedField(fields, "➡️ Resume from", next.isEmpty() ? nextAccountName() : next, true);
         } else if (AL_STATUS_FAILED.equals(status)) {
-            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
-            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
-            sb.append("Current:\n").append(current).append("\n\n");
-            if (errorReason != null && !errorReason.isEmpty()) sb.append("Reason:\n").append(errorReason).append("\n\n");
-            sb.append("Resume from:\n").append(nextAccountName()).append("\n\n");
+            appendEmbedField(fields, "👤 Current", current.isEmpty() ? "-" : current, true);
+            appendEmbedField(fields, "➡️ Resume from", next.isEmpty() ? nextAccountName() : next, true);
+            if (errorReason != null && !errorReason.isEmpty()) {
+                appendEmbedField(fields, "⚠️ Error", errorReason, false);
+            }
         } else if (AL_STATUS_COMPLETED.equals(status)) {
-            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
-            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
-            sb.append("\u23F1\uFE0F Duration: ").append(formatDuration()).append("\n\n");
+            appendEmbedField(fields, "⏱️ Duration", formatDuration(), true);
         } else {
-            sb.append("\uD83D\uDFE2 Current\n").append(current).append("\n\n");
-            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
-            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n");
-            sb.append("\u23F3 Remaining: ").append(Math.max(0, total - done)).append("\n\n");
-            sb.append("Started: ").append(started).append("\n");
-            sb.append("Last update: ").append(updated).append("\n\n");
+            appendEmbedField(fields, "👤 Current", current.isEmpty() ? "-" : current, true);
+            appendEmbedField(fields, "⏱️ Delay",
+                    prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY) + " sec", true);
         }
 
-        sb.append("Status: ").append(statusEmoji(status)).append(" ").append(status).append("\n");
-        sb.append("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
-        return sb.toString();
+        appendEmbedField(fields, "📌 Status", statusText, false);
+        appendEmbedField(fields, "📱 Package", PACKAGE, false);
+        fields.append("]");
+
+        callback.onData(new WebhookEmbedData(title, description, color, fields.toString()));
+    }
+
+    private void appendEmbedField(StringBuilder fields, String name, String value, boolean inline) {
+        if (fields.length() > 1) fields.append(",");
+        fields.append("{\"name\":\"")
+                .append(escapeWebhookJson(name))
+                .append("\",\"value\":\"")
+                .append(escapeWebhookJson(value))
+                .append("\",\"inline\":")
+                .append(inline)
+                .append("}");
+    }
+
+    private String escapeWebhookJson(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
     }
 
     private String statusEmoji(String status){
         if (AL_STATUS_COMPLETED.equals(status)) return "\uD83D\uDFE2";
-        if (AL_STATUS_PAUSED.equals(status)) return "\uD83D\uDFE1";
+        if (AL_STATUS_STOPPED.equals(status)) return "\uD83D\uDFE1";
         if (AL_STATUS_FAILED.equals(status)) return "\uD83D\uDD34";
         return "\uD83D\uDFE2";
     }
@@ -1524,7 +1581,7 @@ public class MainActivity extends AppCompatActivity {
         alRemaining.setText("Remaining: " + Math.max(0, total - done));
         alStatus.setText("Status: " + statusEmoji(status) + " " + status);
 
-        boolean paused = AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status);
+        boolean paused = AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
         alStoppedAt.setVisibility(paused ? View.VISIBLE : View.GONE);
         alResumeFrom.setVisibility(paused ? View.VISIBLE : View.GONE);
         alErrorReason.setVisibility(AL_STATUS_FAILED.equals(status) && !error.isEmpty() ? View.VISIBLE : View.GONE);
@@ -1566,7 +1623,7 @@ public class MainActivity extends AppCompatActivity {
         if (next == null || next.isEmpty()) next = "-";
 
         new AlertDialog.Builder(this)
-            .setTitle(AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status)
+            .setTitle(AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status)
                     ? "AUTO LOGIN PAUSED" : "RESUME AUTO LOGIN")
             .setMessage(done + " / " + total + " completed\n\nResume from: " + next)
             .setCancelable(false)
@@ -2005,11 +2062,11 @@ public class MainActivity extends AppCompatActivity {
 
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
         String next = nextAccountName();
-        persistProgress(AL_STATUS_PAUSED, current, next, null);
+        persistProgress(AL_STATUS_STOPPED, current, next, null);
         addActivityLog("AUTO LOGIN dihentikan (PAUSED). Berikutnya: " + next);
         updateStatus("AUTO LOGIN PAUSED. Berikutnya: " + next);
         showAutoLoginScreen();
-        updateWebhookProgress(AL_STATUS_PAUSED);
+        updateWebhookProgress(AL_STATUS_STOPPED);
     }
 
     /** Hard reset of auto login state without touching the persisted progress session. */
