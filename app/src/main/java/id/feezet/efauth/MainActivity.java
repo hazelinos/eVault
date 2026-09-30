@@ -90,7 +90,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String AL_STATUS_RUNNING = "RUNNING";
     private static final String AL_STATUS_STOPPED = "STOPPED";
     private static final String AL_STATUS_PAUSED = "PAUSED";
-    private static final String AL_STATUS_LEGACY_PAUSED = "PAUSED";
     private static final String AL_STATUS_COMPLETED = "COMPLETED";
     private static final String AL_STATUS_FAILED = "FAILED";
     private static final String AL_STATUS_WAITING = "WAITING FOR LOGIN";
@@ -185,7 +184,7 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (AL_STATUS_LEGACY_PAUSED.equals(prefs.getString(KEY_AL_STATUS, ""))
+        if (AL_STATUS_PAUSED.equals(prefs.getString(KEY_AL_STATUS, ""))
                 && prefs.getInt(KEY_AL_SESSION_VERSION, 0) < 2) {
             prefs.edit().putString(KEY_AL_STATUS, AL_STATUS_STOPPED).apply();
         }
@@ -645,9 +644,7 @@ public class MainActivity extends AppCompatActivity {
     private void chooseLibrary() { chooseTree(pickLibrary); }
 
     private void chooseTree(ActivityResultLauncher<Intent> launcher) {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        launcher.launch(i);
+        launcher.launch(folderPickerIntent());
     }
 
     private Intent folderPickerIntent() {
@@ -669,6 +666,16 @@ public class MainActivity extends AppCompatActivity {
         return s == null ? null : DocumentFile.fromTreeUri(this, Uri.parse(s));
     }
 
+    /** Shared account ordering: numeric name prefix first, then name alphabetically. */
+    private static final Comparator<Account> ACCOUNT_NAME_ORDER = (a, b) -> {
+        int sa = nameToSequence(a.name);
+        int sb = nameToSequence(b.name);
+        if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
+        if (sa > 0 && sb <= 0) return -1;
+        if (sa <= 0 && sb > 0) return 1;
+        return a.name.compareToIgnoreCase(b.name);
+    };
+
     private void loadAccounts() {
         accounts.clear();
         DocumentFile lib = getTree(KEY_LIBRARY);
@@ -680,12 +687,7 @@ public class MainActivity extends AppCompatActivity {
         Collections.sort(accounts, (a, b) -> {
             int categoryCompare = a.category.compareToIgnoreCase(b.category);
             if (categoryCompare != 0) return categoryCompare;
-            int sa = nameToSequence(a.name);
-            int sb = nameToSequence(b.name);
-            if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
-            if (sa > 0 && sb <= 0) return -1;
-            if (sa <= 0 && sb > 0) return 1;
-            return a.name.compareToIgnoreCase(b.name);
+            return ACCOUNT_NAME_ORDER.compare(a, b);
         });
     }
 
@@ -878,13 +880,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void deleteCurrentAuth() {
-        teardownAutoLogin(); clearWorkflow(); DocumentFile target = getTree(KEY_TARGET);
-        if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; }
-        DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; }
-        new AlertDialog.Builder(this).setTitle("Hapus AUTH Saat Ini").setMessage("Hapus file AUTH yang sedang terpasang di target?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d,w) -> updateStatus(auth.delete() ? "✓ AUTH saat ini dihapus." : "Gagal menghapus AUTH. Periksa izin folder.")).show();
-    }
-
     private void showSaveAuthDialog() {
         teardownAutoLogin();
         clearWorkflow();
@@ -977,12 +972,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        DocumentFile categoryDir = categoryRoot(library, categoryName);
-        if (!validDir(categoryDir)) {
-            updateStatus("Gagal membuka kategori: " + categoryName);
-            return;
-        }
-
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setHint("Nama file / akun");
@@ -1011,6 +1000,14 @@ public class MainActivity extends AppCompatActivity {
             }
             if (accountName.contains("/") || accountName.contains("\\")) {
                 input.setError("Nama tidak boleh mengandung / atau \\.");
+                return;
+            }
+
+            // Create the category only now that the user confirmed the save, so cancelling
+            // the dialog doesn't leave an empty category folder behind.
+            DocumentFile categoryDir = categoryRoot(library, categoryName);
+            if (!validDir(categoryDir)) {
+                input.setError("Gagal membuka kategori: " + categoryName);
                 return;
             }
 
@@ -1354,11 +1351,6 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    private void notifyDiscord(String message){
-        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "").trim();
-        if (!url.isEmpty()) DiscordWebhook.send(url, message);
-    }
-
     // ============ Auto Login progress session (persistent) ============
 
     private void beginSession(int total){
@@ -1410,16 +1402,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void persistProgress(String status, String current, String next, String error){
         int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
-        prefs.edit()
+        SharedPreferences.Editor edit = prefs.edit()
             .putInt(KEY_AL_TOTAL, total)
             .putInt(KEY_AL_SUCCESS, autoLoginSuccessCount)
             .putInt(KEY_AL_FAILED, autoLoginFailedCount)
             .putString(KEY_AL_STATUS, status)
             .putString(KEY_AL_CURRENT_ACCOUNT, current == null ? "" : current)
             .putString(KEY_AL_NEXT_ACCOUNT, next == null ? "" : next)
-            .putString(KEY_AL_UPDATED_AT, String.valueOf(System.currentTimeMillis()))
-            .apply();
-        if (error != null) prefs.edit().putString(KEY_AL_LAST_ERROR, error).apply();
+            .putString(KEY_AL_UPDATED_AT, String.valueOf(System.currentTimeMillis()));
+        if (error != null) edit.putString(KEY_AL_LAST_ERROR, error);
+        edit.apply();
         if (AL_STATUS_COMPLETED.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status)) {
             if (!prefs.contains(KEY_AL_FINISHED_AT) || AL_STATUS_COMPLETED.equals(status))
                 prefs.edit().putString(KEY_AL_FINISHED_AT, String.valueOf(System.currentTimeMillis())).apply();
@@ -1440,7 +1432,7 @@ public class MainActivity extends AppCompatActivity {
 
     private String nextAccountName(){
         int nextIndex = autoLoginIndex + 1;
-        if (nextIndex >= 0 && nextIndex < autoLoginAccounts.size()) {
+        if (nextIndex < autoLoginAccounts.size()) {
             return autoLoginAccounts.get(nextIndex).name;
         }
         return "-";
@@ -1470,7 +1462,7 @@ public class MainActivity extends AppCompatActivity {
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
         String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
         String gameState = prefs.getString(KEY_AL_EFOOTBALL_STATE, "-");
-        String description = done + " / " + total + " accounts · " + percent + "%\\n" + progressBar(percent);
+        String description = done + " / " + total + " accounts · " + percent + "%\n" + progressBar(percent);
 
         String statusText;
         if (AL_STATUS_COMPLETED.equals(status)) statusText = "✅ COMPLETED";
@@ -1512,20 +1504,12 @@ public class MainActivity extends AppCompatActivity {
     private void appendEmbedField(StringBuilder fields, String name, String value, boolean inline) {
         if (fields.length() > 1) fields.append(",");
         fields.append("{\"name\":\"")
-                .append(escapeWebhookJson(name))
+                .append(DiscordWebhook.escapeJson(name))
                 .append("\",\"value\":\"")
-                .append(escapeWebhookJson(value))
+                .append(DiscordWebhook.escapeJson(value))
                 .append("\",\"inline\":")
                 .append(inline)
                 .append("}");
-    }
-
-    private String escapeWebhookJson(String value) {
-        if (value == null) return "";
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n");
     }
 
     private String statusEmoji(String status){
@@ -1534,15 +1518,6 @@ public class MainActivity extends AppCompatActivity {
         if (AL_STATUS_PAUSED.equals(status)) return "\u23F8";
         if (AL_STATUS_FAILED.equals(status)) return "\uD83D\uDD34";
         return "\uD83D\uDFE2";
-    }
-
-    private String formatClock(String millis){
-        if (millis == null || millis.isEmpty()) return "--:--";
-        try {
-            return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(Long.parseLong(millis)));
-        } catch (Exception e) {
-            return "--:--";
-        }
     }
 
     private String formatDuration(){
@@ -1605,7 +1580,7 @@ public class MainActivity extends AppCompatActivity {
         alDuration.setVisibility(AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
 
         if (paused) {
-            alStoppedAt.setText((AL_STATUS_PAUSED.equals(status) ? "Paused at: " : "Stopped at: ")
+            alStoppedAt.setText((AL_STATUS_PAUSED.equals(status) ? "Paused on: " : "Stopped on: ")
                     + (current.isEmpty() ? "-" : current));
             alResumeFrom.setText("Resume from: " + (next.isEmpty() ? "-" : next));
         }
@@ -1664,17 +1639,24 @@ public class MainActivity extends AppCompatActivity {
         if(accounts.isEmpty()) loadAccounts();
 
         ArrayList<Account> rebuilt = new ArrayList<>();
+        // savedIndex points into the original (unfiltered) session list; remap it to the
+        // rebuilt list so already-verified accounts don't shift the resume position.
+        int resumePos = savedIndex;
         if("single".equals(mode)){
             String pendingKey = prefs.getString(KEY_AUTO_LOGIN_PENDING, null);
             for(Account a : accounts){
                 if(pendingKey != null && accountKey(a).equals(pendingKey)) rebuilt.add(a);
             }
             savedIndex = 0;
+            resumePos = 0;
         } else if(category != null){
-            String savedAccounts = prefs.getString(KEY_AL_ACCOUNTS, "");
-            for (String savedKey : split(savedAccounts)) {
+            List<String> savedKeys = split(prefs.getString(KEY_AL_ACCOUNTS, ""));
+            resumePos = 0;
+            for (int i = 0; i < savedKeys.size(); i++) {
+                String savedKey = savedKeys.get(i);
                 for (Account a : accounts) {
                     if (accountKey(a).equals(savedKey) && !isLoginVerifiedToday(a)) {
+                        if (i < savedIndex) resumePos++;
                         rebuilt.add(a);
                         break;
                     }
@@ -1686,15 +1668,9 @@ public class MainActivity extends AppCompatActivity {
                     if(isLoginVerifiedToday(a)) continue;
                     rebuilt.add(a);
                 }
+                resumePos = savedIndex;
             }
-            Collections.sort(rebuilt, (a, b) -> {
-                int sa = nameToSequence(a.name);
-                int sb = nameToSequence(b.name);
-                if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
-                if (sa > 0 && sb <= 0) return -1;
-                if (sa <= 0 && sb > 0) return 1;
-                return a.name.compareToIgnoreCase(b.name);
-            });
+            Collections.sort(rebuilt, ACCOUNT_NAME_ORDER);
         }
 
         if(rebuilt.isEmpty()){
@@ -1706,17 +1682,18 @@ public class MainActivity extends AppCompatActivity {
         // Restore counters from the persisted session.
         autoLoginSuccessCount = prefs.getInt(KEY_AL_SUCCESS, 0);
         autoLoginFailedCount = prefs.getInt(KEY_AL_FAILED, 0);
-        int index = Math.max(0, Math.min(savedIndex, rebuilt.size() - 1));
+        int index = Math.max(0, Math.min(resumePos, rebuilt.size() - 1));
 
         autoLoginAccounts.clear();
         autoLoginAccounts.addAll(rebuilt);
         autoLoginIndex = index;
         autoLoginRunning = true;
         boolean waitingConfirmation = prefs.getBoolean(KEY_AL_WAITING_CONFIRMATION, false);
+        // Keep the session's original total: success/failed counters are cumulative and the
+        // rebuilt list may be smaller after filtering out verified accounts.
         prefs.edit()
             .putInt(KEY_AL_SUCCESS, autoLoginSuccessCount)
             .putInt(KEY_AL_FAILED, autoLoginFailedCount)
-            .putInt(KEY_AL_TOTAL, autoLoginAccounts.size())
             .putString(KEY_AL_STATUS, AL_STATUS_RUNNING)
             .putString(KEY_AL_EFOOTBALL_STATE, waitingConfirmation ? AL_GAME_WAITING : AL_GAME_PREPARING)
             .remove(KEY_AL_LAST_ERROR)
@@ -1745,11 +1722,12 @@ public class MainActivity extends AppCompatActivity {
             .setTitle("AUTO LOGIN")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
-                "LOGIN YANG BELUM LOGIN HARI INI"
+                "LOGIN YANG BELUM LOGIN HARI INI",
+                "LOGIN SATU AKUN"
             }, (d, which) -> {
-                String mode = which == 0 ? "all" : "unverified";
+                String mode = which == 0 ? "all" : which == 1 ? "unverified" : "single";
                 prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
-                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : which == 1 ? "BELUM LOGIN HARI INI" : "SATU AKUN"));
                 showCategoryPickerDialog(categories);
             })
             .setNegativeButton("BATAL", null)
@@ -1818,14 +1796,7 @@ public class MainActivity extends AppCompatActivity {
             autoLoginAccounts.add(a);
         }
 
-        Collections.sort(autoLoginAccounts, (a, b) -> {
-            int sa = nameToSequence(a.name);
-            int sb = nameToSequence(b.name);
-            if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
-            if (sa > 0 && sb <= 0) return -1;
-            if (sa <= 0 && sb > 0) return 1;
-            return a.name.compareToIgnoreCase(b.name);
-        });
+        Collections.sort(autoLoginAccounts, ACCOUNT_NAME_ORDER);
 
         if(autoLoginAccounts.isEmpty()){
             updateStatus("✓ Semua akun " + category + " sudah login hari ini.");
@@ -1851,14 +1822,7 @@ public class MainActivity extends AppCompatActivity {
             if (a.category.equals(category)) categoryAccounts.add(a);
         }
 
-        Collections.sort(categoryAccounts, (a, b) -> {
-            int sa = nameToSequence(a.name);
-            int sb = nameToSequence(b.name);
-            if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
-            if (sa > 0 && sb <= 0) return -1;
-            if (sa <= 0 && sb > 0) return 1;
-            return a.name.compareToIgnoreCase(b.name);
-        });
+        Collections.sort(categoryAccounts, ACCOUNT_NAME_ORDER);
 
         if (categoryAccounts.isEmpty()) {
             updateStatus("Kategori " + category + " tidak punya akun.");
@@ -1922,6 +1886,7 @@ public class MainActivity extends AppCompatActivity {
             autoLoginHandler.post(() -> {
                 if (!autoLoginRunning) return;
                 if (!copied) {
+                    autoLoginFailedCount++;
                     failAutoLogin("COPY AUTH gagal untuk " + account.name);
                     return;
                 }
@@ -1935,6 +1900,7 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_OPENED).apply();
         updateWebhookProgress(AL_STATUS_RUNNING);
         if (!launchGame()) {
+            autoLoginFailedCount++;
             failAutoLogin("Gagal membuka eFootball untuk " + account.name);
             return;
         }
@@ -1945,9 +1911,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void finishAutoLoginCompleted(){
-        int total = autoLoginAccounts.size();
         autoLoginRunning=false;
-        autoLoginFailedCount = Math.max(autoLoginFailedCount, Math.max(0, total - autoLoginSuccessCount));
         prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
         prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_COMPLETED)
             .putBoolean(KEY_AL_WAITING_CONFIRMATION, false).apply();
@@ -2095,10 +2059,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Stop after a successful login. The confirmed account remains counted and the next
-     * account becomes the resume point. */
+    /** Stops Auto Login. The resume point stays on the current account unless it was already
+     * confirmed (marked login-verified today), in which case the next account becomes
+     * the resume point. */
     private void stopAutoLogin(){
-        if (!autoLoginRunning || autoLoginSuccessCount <= 0) return;
+        if (!autoLoginRunning) return;
 
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
@@ -2106,8 +2071,10 @@ public class MainActivity extends AppCompatActivity {
         if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
 
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
-        String next = nextAccountName();
-        autoLoginIndex = Math.min(autoLoginIndex + 1, Math.max(0, autoLoginAccounts.size()));
+        boolean currentDone = autoLoginIndex >= 0 && autoLoginIndex < autoLoginAccounts.size()
+                && isLoginVerifiedToday(autoLoginAccounts.get(autoLoginIndex));
+        autoLoginIndex = Math.min(autoLoginIndex + (currentDone ? 1 : 0), autoLoginAccounts.size());
+        String next = autoLoginIndex < autoLoginAccounts.size() ? autoLoginAccounts.get(autoLoginIndex).name : "-";
         prefs.edit()
             .putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex)
             .remove(KEY_AUTO_LOGIN_PENDING)
@@ -2116,8 +2083,8 @@ public class MainActivity extends AppCompatActivity {
             .apply();
 
         persistProgress(AL_STATUS_STOPPED, current, next, null);
-        addActivityLog("AUTO LOGIN dihentikan setelah login berhasil. Terakhir: " + current + ". Berikutnya: " + next);
-        updateStatus("AUTO LOGIN STOPPED. Berikutnya: " + next);
+        addActivityLog("AUTO LOGIN dihentikan. Terakhir: " + current + ". Resume dari: " + next);
+        updateStatus("AUTO LOGIN STOPPED. Resume dari: " + next);
         showAutoLoginScreen();
         updateWebhookProgress(AL_STATUS_STOPPED);
     }
@@ -2145,7 +2112,6 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, waitingConfirmation).apply();
     }
 
-    /** Hard reset of auto login state without touching the persisted progress session. */
     private String joinAccountKeys(){
         StringBuilder result = new StringBuilder();
         for (Account account : autoLoginAccounts) {
@@ -2155,6 +2121,7 @@ public class MainActivity extends AppCompatActivity {
         return result.toString();
     }
 
+    /** Hard reset of auto login state without touching the persisted progress session. */
     private void teardownAutoLogin(){
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
@@ -2171,12 +2138,39 @@ public class MainActivity extends AppCompatActivity {
             updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
             return false;
         }
-        DocumentFile old=target.findFile(AUTH_FILE);if(old!=null)old.delete();
         boolean ok=copyFile(account.file,target,AUTH_FILE);
         addActivityLog("COPY AUTH " + (ok ? "berhasil: " : "gagal: ") + account.category + " / " + account.name);
         return ok;
     }
-    private boolean copyFile(DocumentFile source,DocumentFile parent,String name){DocumentFile dest=parent.findFile(name);if(dest!=null)dest.delete();dest=parent.createFile("application/octet-stream",name);if(dest==null)return false;try(InputStream in=getContentResolver().openInputStream(source.getUri());OutputStream out=getContentResolver().openOutputStream(dest.getUri(),"w")){if(in==null||out==null)throw new Exception("stream null");byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);out.flush();return true;}catch(Exception e){dest.delete();return false;}}
+    private boolean copyFile(DocumentFile source, DocumentFile parent, String name){
+        // Write to a temp file first so the installed AUTH stays intact if the copy fails.
+        String tmpName = name + ".tmp";
+        DocumentFile stale = parent.findFile(tmpName);
+        if (stale != null) stale.delete();
+        DocumentFile tmp = parent.createFile("application/octet-stream", tmpName);
+        if (tmp == null) return false;
+        try (InputStream in = getContentResolver().openInputStream(source.getUri());
+             OutputStream out = getContentResolver().openOutputStream(tmp.getUri(), "w")) {
+            if (in == null || out == null) throw new Exception("stream null");
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+            out.flush();
+        } catch (Exception e) {
+            tmp.delete();
+            return false;
+        }
+        DocumentFile old = parent.findFile(name);
+        if (old != null && !old.delete()) {
+            tmp.delete();
+            return false;
+        }
+        if (!tmp.renameTo(name)) {
+            tmp.delete();
+            return false;
+        }
+        return true;
+    }
     private boolean launchGame(){
         Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
         if(i==null){
@@ -2203,6 +2197,9 @@ public class MainActivity extends AppCompatActivity {
     private void updateStatus(String s){if(status!=null)status.post(() -> status.setText(s));}
     @Override protected void onDestroy(){
         saveAutoLoginDelay();
+        // Cancel pending auto-login callbacks: the queued Runnables belong to this instance
+        // and must not run against a shut-down executor after rotation/destroy.
+        autoLoginHandler.removeCallbacksAndMessages(null);
         autoLoginIoExecutor.shutdownNow();
         super.onDestroy();
     }

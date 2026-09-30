@@ -15,6 +15,11 @@ final class DiscordWebhook {
 
     private DiscordWebhook() {}
 
+    /** Appends ?wait=true (or &wait=true) so Discord returns the created message. */
+    private static String withWait(String webhookUrl) {
+        return webhookUrl + (webhookUrl.contains("?") ? "&wait=true" : "?wait=true");
+    }
+
     static boolean isValidUrl(String value) {
         return value != null && (
                 value.startsWith("https://discord.com/api/webhooks/")
@@ -33,7 +38,7 @@ final class DiscordWebhook {
             return;
         }
         EXECUTOR.execute(() -> {
-            String id = request(webhookUrl + "?wait=true", "POST", content, false);
+            String id = request(withWait(webhookUrl), "POST", content, false);
             if (callback != null) callback.onResult(id);
         });
     }
@@ -59,7 +64,7 @@ final class DiscordWebhook {
         }
         EXECUTOR.execute(() -> {
             String payload = buildEmbedPayload(title, description, color, fieldsJson);
-            String id = request(webhookUrl + "?wait=true", "POST", payload, true);
+            String id = request(withWait(webhookUrl), "POST", payload, true);
             if (callback != null) callback.onResult(id);
         });
     }
@@ -80,16 +85,14 @@ final class DiscordWebhook {
 
     private static String buildEmbedPayload(String title, String description,
                                              int color, String fieldsJson) {
-        StringBuilder body = new StringBuilder();
-        body.append("{\"embeds\":[{");
-        body.append("\"title\":\"").append(escapeJson(title == null ? "" : title)).append("\",");
-        body.append("\"description\":\"").append(escapeJson(description == null ? "" : description)).append("\",");
-        if (color > 0) body.append(",\"color\":").append(color);
+        StringBuilder embed = new StringBuilder();
+        embed.append("\"title\":\"").append(escapeJson(title == null ? "" : title)).append("\"");
+        embed.append(",\"description\":\"").append(escapeJson(description == null ? "" : description)).append("\"");
+        if (color > 0) embed.append(",\"color\":").append(color);
         if (fieldsJson != null && !fieldsJson.trim().isEmpty()) {
-            body.append(",\"fields\":").append(fieldsJson);
+            embed.append(",\"fields\":").append(fieldsJson);
         }
-        body.append("}]}");
-        return body.toString();
+        return "{\"embeds\":[{" + embed + "}]}";
     }
 
     private static String request(String url, String method, String payload, boolean rawJson) {
@@ -143,12 +146,26 @@ final class DiscordWebhook {
         return json.substring(firstQuote + 1, secondQuote);
     }
 
-    private static String escapeJson(String value) {
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n")
-                .replace("\t", "\\t");
+    /** JSON string escaper shared with MainActivity's embed field builder. */
+    static String escapeJson(String value) {
+        if (value == null) return "";
+        StringBuilder out = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\': out.append("\\\\"); break;
+                case '"': out.append("\\\""); break;
+                case '\r': out.append("\\r"); break;
+                case '\n': out.append("\\n"); break;
+                case '\t': out.append("\\t"); break;
+                case '\b': out.append("\\b"); break;
+                case '\f': out.append("\\f"); break;
+                default:
+                    if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     interface Callback {
