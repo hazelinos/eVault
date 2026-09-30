@@ -1674,7 +1674,7 @@ public class MainActivity extends AppCompatActivity {
             String savedAccounts = prefs.getString(KEY_AL_ACCOUNTS, "");
             for (String savedKey : split(savedAccounts)) {
                 for (Account a : accounts) {
-                    if (accountKey(a).equals(savedKey)) {
+                    if (accountKey(a).equals(savedKey) && !isLoginVerifiedToday(a)) {
                         rebuilt.add(a);
                         break;
                     }
@@ -1683,7 +1683,7 @@ public class MainActivity extends AppCompatActivity {
             if (rebuilt.isEmpty()) {
                 for(Account a : accounts){
                     if(!a.category.equals(category)) continue;
-                    if("unverified".equals(mode) && isLoginVerifiedToday(a)) continue;
+                    if(isLoginVerifiedToday(a)) continue;
                     rebuilt.add(a);
                 }
             }
@@ -1807,7 +1807,9 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.clear();
         for(Account a : accounts){
             if(!a.category.equals(category)) continue;
-            if("unverified".equals(mode) && isLoginVerifiedToday(a)) continue;
+            // A confirmed login is authoritative for the current login day,
+            // regardless of the selected Auto Login mode.
+            if(isLoginVerifiedToday(a)) continue;
             autoLoginAccounts.add(a);
         }
 
@@ -1872,6 +1874,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startAutoLoginForSingleAccount(Account account){
+        if (isLoginVerifiedToday(account)) {
+            updateStatus("✓ " + account.name + " sudah login hari ini. Tidak perlu diulang.");
+            addActivityLog("AUTO LOGIN dilewati: " + account.category + " / " + account.name + " sudah login hari ini.");
+            return;
+        }
         clearWorkflow();
         autoLoginAccounts.clear();
         autoLoginAccounts.add(account);
@@ -2037,32 +2044,38 @@ public class MainActivity extends AppCompatActivity {
         return account.category + "\u001F" + account.name;
     }
 
-    private String utcDate(){
+    /** Login day rolls over every day at 09:00 WIB (UTC+7). */
+    private String loginDayKey(){
+        long now = System.currentTimeMillis();
+        // 09:00 WIB == 02:00 UTC. Shift the UTC clock back by 2 hours,
+        // then use the UTC date as the eFootball login day key.
+        Date loginDayDate = new Date(now - (2L * 60L * 60L * 1000L));
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
         format.setTimeZone(TimeZone.getTimeZone("UTC"));
-        return format.format(new Date());
-}
+        return format.format(loginDayDate);
+    }
 
     private boolean isLoginVerifiedToday(Account account){
-        String today = utcDate();
-        String key = accountKey(account) + "\u001F" + today;
+        String key = accountKey(account) + "\u001F" + loginDayKey();
         Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
         return verified != null && verified.contains(key);
     }
 
     private void markLoginVerifiedToday(Account account){
-        String key = accountKey(account) + "\u001F" + utcDate();
+        String today = loginDayKey();
+        String key = accountKey(account) + "\u001F" + today;
         Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
         HashSet<String> updated = new HashSet<>();
         if(old != null) updated.addAll(old);
-        // Keep today's records plus recent entries; stale records are harmless but pruned here.
-        String today = utcDate();
+
+        // Keep only records from the current 09:00 WIB -> 08:59 WIB login day.
         Iterator<String> it = updated.iterator();
         while(it.hasNext()){
             String entry = it.next();
             int split = entry.lastIndexOf("\u001F");
             if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
         }
+
         updated.add(key);
         prefs.edit().putStringSet(KEY_LOGIN_VERIFIED, updated).apply();
     }
