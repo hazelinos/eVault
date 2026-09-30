@@ -1761,6 +1761,7 @@ public class MainActivity extends AppCompatActivity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(8), dp(8), dp(8), dp(8));
         String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
+        final AlertDialog[] dlgHolder = new AlertDialog[1];
         for (final String cat : categories) {
             int total = 0;
             int verified = 0;
@@ -1773,7 +1774,7 @@ public class MainActivity extends AppCompatActivity {
             int shown = "unverified".equals(mode) ? total - verified : total;
             String label = cat + "  (" + shown + ("unverified".equals(mode) ? " belum login" : " akun") + ")";
             Button b = secondaryButton(label, v -> {
-                dlg.dismiss();
+                if (dlgHolder[0] != null) dlgHolder[0].dismiss();
                 startAutoLoginForCategory(cat);
             });
             box.addView(b, spacedLp(dp(6)));
@@ -1783,6 +1784,7 @@ public class MainActivity extends AppCompatActivity {
             .setView(box)
             .setNegativeButton("BATAL", null)
             .create();
+        dlgHolder[0] = dlg;
         dlg.show();
     }
 
