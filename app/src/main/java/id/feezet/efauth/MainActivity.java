@@ -83,12 +83,25 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AL_WEBHOOK_MSG_ID = "al_webhook_msg_id";
     private static final String KEY_AL_LAST_ERROR = "al_last_error";
     private static final String KEY_AL_FINISHED_AT = "al_finished_at";
+    private static final String KEY_AL_SESSION_VERSION = "al_session_version";
+    private static final String KEY_AL_WAITING_CONFIRMATION = "al_waiting_confirmation";
+    private static final String KEY_AL_EFOOTBALL_STATE = "al_efootball_state";
     private static final String KEY_AL_ACCOUNTS = "al_accounts";
     private static final String AL_STATUS_RUNNING = "RUNNING";
     private static final String AL_STATUS_STOPPED = "STOPPED";
+    private static final String AL_STATUS_PAUSED = "PAUSED";
     private static final String AL_STATUS_LEGACY_PAUSED = "PAUSED";
     private static final String AL_STATUS_COMPLETED = "COMPLETED";
     private static final String AL_STATUS_FAILED = "FAILED";
+    private static final String AL_STATUS_WAITING = "WAITING FOR LOGIN";
+    private static final String AL_GAME_PREPARING = "MENYIAPKAN AUTH";
+    private static final String AL_GAME_OPENED = "DIBUKA · menunggu konfirmasi";
+    private static final String AL_GAME_WAITING = "MENUNGGU KONFIRMASI LOGIN";
+    private static final String AL_GAME_VERIFIED = "LOGIN DIKONFIRMASI";
+    private static final String AL_GAME_RETRY = "LOGIN BELUM BERHASIL · retry";
+    private static final String AL_GAME_PAUSED = "DIJEDA";
+    private static final String AL_GAME_STOPPED = "BERHENTI";
+    private static final String AL_GAME_COMPLETED = "SELESAI";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
     private static final int MAX_ACTIVITY_LOGS = 300;
     private static final String NAMING_NUMERIC = "numeric";
@@ -128,6 +141,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView alResumeFrom;
     private TextView alDuration;
     private TextView alErrorReason;
+    private Button alPauseButton;
     private Button alStopButton;
     private Button alContinueButton;
     private Button alExitButton;
@@ -171,7 +185,8 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        if (AL_STATUS_LEGACY_PAUSED.equals(prefs.getString(KEY_AL_STATUS, ""))) {
+        if (AL_STATUS_LEGACY_PAUSED.equals(prefs.getString(KEY_AL_STATUS, ""))
+                && prefs.getInt(KEY_AL_SESSION_VERSION, 0) < 2) {
             prefs.edit().putString(KEY_AL_STATUS, AL_STATUS_STOPPED).apply();
         }
         buildUi();
@@ -482,18 +497,26 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(cardBox, cardLp());
 
+        alPauseButton = secondaryButton("PAUSE", v -> pauseAutoLogin());
         alStopButton = dangerButton("STOP", v -> stopAutoLogin());
         alContinueButton = primaryButton("CONTINUE", v -> resumeAutoLogin());
         alExitButton = secondaryButton("EXIT", v -> exitAutoLogin());
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(alStopButton, weightLp(dp(8), 0));
-        row.addView(alContinueButton, weightLp(dp(8), 1));
-        row.addView(alExitButton, weightLp(dp(8), 2));
-        LinearLayout.LayoutParams rowLp = fullLp();
-        rowLp.topMargin = dp(8);
-        root.addView(row, rowLp);
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.addView(alPauseButton, weightLp(dp(8), 0));
+        row1.addView(alStopButton, weightLp(dp(8), 1));
+        LinearLayout.LayoutParams row1Lp = fullLp();
+        row1Lp.topMargin = dp(8);
+        root.addView(row1, row1Lp);
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(alContinueButton, weightLp(dp(8), 0));
+        row2.addView(alExitButton, weightLp(dp(8), 1));
+        LinearLayout.LayoutParams row2Lp = fullLp();
+        row2Lp.topMargin = dp(8);
+        root.addView(row2, row2Lp);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(color(R.color.bgBase));
@@ -1323,8 +1346,8 @@ public class MainActivity extends AppCompatActivity {
                     url,
                     "🔔 eVault — WEBHOOK",
                     "Webhook berhasil terhubung.",
-                    0x5865F2,
-                    "[{\"name\":\"Status\",\"value\":\"🟢 CONNECTED\",\"inline\":true},{\"name\":\"Package\",\"value\":\"" + PACKAGE + "\",\"inline\":true}]",
+                    0,
+                    "[{\"name\":\"Status\",\"value\":\"🟢 CONNECTED\",\"inline\":true}]",
                     null
                 );
             })
@@ -1345,6 +1368,7 @@ public class MainActivity extends AppCompatActivity {
         String now = String.valueOf(System.currentTimeMillis());
         prefs.edit()
             .putString(KEY_AL_SESSION_ID, sessionId)
+            .putInt(KEY_AL_SESSION_VERSION, 2)
             .putInt(KEY_AL_TOTAL, total)
             .putInt(KEY_AL_SUCCESS, 0)
             .putInt(KEY_AL_FAILED, 0)
@@ -1356,6 +1380,8 @@ public class MainActivity extends AppCompatActivity {
             .remove(KEY_AL_FINISHED_AT)
             .remove(KEY_AL_LAST_ERROR)
             .remove(KEY_AL_WEBHOOK_MSG_ID)
+            .putBoolean(KEY_AL_WAITING_CONFIRMATION, false)
+            .putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_PREPARING)
             .putString(KEY_AL_ACCOUNTS, joinAccountKeys())
             .apply();
 
@@ -1378,7 +1404,8 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean hasActiveSession(){
         String status = prefs.getString(KEY_AL_STATUS, "");
-        return AL_STATUS_RUNNING.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
+        return AL_STATUS_RUNNING.equals(status) || AL_STATUS_PAUSED.equals(status)
+                || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
     }
 
     private void persistProgress(String status, String current, String next, String error){
@@ -1442,27 +1469,16 @@ public class MainActivity extends AppCompatActivity {
         int percent = progressPercent();
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
         String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
-        String description = done + " / " + total + " accounts · " + percent + "%\n" + progressBar(percent);
+        String gameState = prefs.getString(KEY_AL_EFOOTBALL_STATE, "-");
+        String description = done + " / " + total + " accounts · " + percent + "%\\n" + progressBar(percent);
 
-        String title;
-        int color;
-        if (AL_STATUS_COMPLETED.equals(status)) {
-            title = "✅ eVault — AUTO LOGIN";
-            color = 0x57F287;
-        } else if (AL_STATUS_STOPPED.equals(status)) {
-            title = "🛑 eVault — AUTO LOGIN";
-            color = 0xED4245;
-        } else if (AL_STATUS_FAILED.equals(status)) {
-            title = "❌ eVault — AUTO LOGIN";
-            color = 0xED4245;
-        } else {
-            title = "▶️ eVault — AUTO LOGIN";
-            color = 0x5865F2;
-        }
-
-        String statusText = AL_STATUS_COMPLETED.equals(status) ? "🟢 COMPLETED"
-                : AL_STATUS_STOPPED.equals(status) ? "🔴 STOPPED"
-                : AL_STATUS_FAILED.equals(status) ? "🔴 FAILED" : "🟢 RUNNING";
+        String statusText;
+        if (AL_STATUS_COMPLETED.equals(status)) statusText = "✅ COMPLETED";
+        else if (AL_STATUS_STOPPED.equals(status)) statusText = "🛑 STOPPED";
+        else if (AL_STATUS_PAUSED.equals(status)) statusText = "⏸️ PAUSED";
+        else if (AL_STATUS_FAILED.equals(status)) statusText = "🔴 FAILED";
+        else if (AL_STATUS_WAITING.equals(status)) statusText = "🟡 WAITING FOR LOGIN";
+        else statusText = "🟢 RUNNING";
 
         StringBuilder fields = new StringBuilder("[");
         appendEmbedField(fields, "✅ Successful", String.valueOf(autoLoginSuccessCount), true);
@@ -1472,25 +1488,25 @@ public class MainActivity extends AppCompatActivity {
         if (AL_STATUS_STOPPED.equals(status)) {
             appendEmbedField(fields, "👤 Last", current.isEmpty() ? "-" : current, true);
             appendEmbedField(fields, "➡️ Resume from", next.isEmpty() ? nextAccountName() : next, true);
+        } else if (AL_STATUS_PAUSED.equals(status)) {
+            appendEmbedField(fields, "👤 Current", current.isEmpty() ? "-" : current, true);
+            appendEmbedField(fields, "➡️ Resume from", current.isEmpty() ? "-" : current, true);
         } else if (AL_STATUS_FAILED.equals(status)) {
             appendEmbedField(fields, "👤 Current", current.isEmpty() ? "-" : current, true);
             appendEmbedField(fields, "➡️ Resume from", next.isEmpty() ? nextAccountName() : next, true);
-            if (errorReason != null && !errorReason.isEmpty()) {
-                appendEmbedField(fields, "⚠️ Error", errorReason, false);
-            }
+            if (errorReason != null && !errorReason.isEmpty()) appendEmbedField(fields, "⚠️ Error", errorReason, false);
         } else if (AL_STATUS_COMPLETED.equals(status)) {
             appendEmbedField(fields, "⏱️ Duration", formatDuration(), true);
         } else {
             appendEmbedField(fields, "👤 Current", current.isEmpty() ? "-" : current, true);
-            appendEmbedField(fields, "⏱️ Delay",
-                    prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY) + " sec", true);
+            appendEmbedField(fields, "⏱️ Delay", prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY) + " sec", true);
         }
 
+        appendEmbedField(fields, "🎮 eFootball", gameState, false);
         appendEmbedField(fields, "📌 Status", statusText, false);
-        appendEmbedField(fields, "📱 Package", PACKAGE, false);
         fields.append("]");
 
-        callback.onData(new WebhookEmbedData(title, description, color, fields.toString()));
+        callback.onData(new WebhookEmbedData("⚡ eVault — AUTO LOGIN", description, 0, fields.toString()));
     }
 
     private void appendEmbedField(StringBuilder fields, String name, String value, boolean inline) {
@@ -1514,7 +1530,8 @@ public class MainActivity extends AppCompatActivity {
 
     private String statusEmoji(String status){
         if (AL_STATUS_COMPLETED.equals(status)) return "\uD83D\uDFE2";
-        if (AL_STATUS_STOPPED.equals(status)) return "\uD83D\uDFE1";
+        if (AL_STATUS_STOPPED.equals(status)) return "\uD83D\uDED1";
+        if (AL_STATUS_PAUSED.equals(status)) return "\u23F8";
         if (AL_STATUS_FAILED.equals(status)) return "\uD83D\uDD34";
         return "\uD83D\uDFE2";
     }
@@ -1581,14 +1598,15 @@ public class MainActivity extends AppCompatActivity {
         alRemaining.setText("Remaining: " + Math.max(0, total - done));
         alStatus.setText("Status: " + statusEmoji(status) + " " + status);
 
-        boolean paused = AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
+        boolean paused = AL_STATUS_PAUSED.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
         alStoppedAt.setVisibility(paused ? View.VISIBLE : View.GONE);
         alResumeFrom.setVisibility(paused ? View.VISIBLE : View.GONE);
         alErrorReason.setVisibility(AL_STATUS_FAILED.equals(status) && !error.isEmpty() ? View.VISIBLE : View.GONE);
         alDuration.setVisibility(AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
 
         if (paused) {
-            alStoppedAt.setText("Stopped at: " + (current.isEmpty() ? "-" : current));
+            alStoppedAt.setText((AL_STATUS_PAUSED.equals(status) ? "Paused at: " : "Stopped at: ")
+                    + (current.isEmpty() ? "-" : current));
             alResumeFrom.setText("Resume from: " + (next.isEmpty() ? "-" : next));
         }
         if (AL_STATUS_FAILED.equals(status) && !error.isEmpty()) {
@@ -1598,15 +1616,17 @@ public class MainActivity extends AppCompatActivity {
             alDuration.setText("Duration: " + formatDuration());
         }
 
-        alStopButton.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
+        alPauseButton.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
+        alStopButton.setVisibility(AL_STATUS_RUNNING.equals(status) && autoLoginSuccessCount > 0 ? View.VISIBLE : View.GONE);
         alContinueButton.setVisibility(paused ? View.VISIBLE : View.GONE);
         alExitButton.setVisibility(paused || AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
     }
 
     private void exitAutoLogin(){
         prefs.edit()
-            .remove(KEY_AL_SESSION_ID).remove(KEY_AL_STATUS).remove(KEY_AL_CURRENT_ACCOUNT)
+            .remove(KEY_AL_SESSION_ID).remove(KEY_AL_SESSION_VERSION).remove(KEY_AL_STATUS).remove(KEY_AL_CURRENT_ACCOUNT)
             .remove(KEY_AL_NEXT_ACCOUNT).remove(KEY_AL_LAST_ERROR).remove(KEY_AL_WEBHOOK_MSG_ID)
+            .remove(KEY_AL_WAITING_CONFIRMATION).remove(KEY_AL_EFOOTBALL_STATE)
             .apply();
         hideAutoLoginScreen();
         updateStatus("AUTO LOGIN ditutup. Progress dibuang.");
@@ -1623,8 +1643,8 @@ public class MainActivity extends AppCompatActivity {
         if (next == null || next.isEmpty()) next = "-";
 
         new AlertDialog.Builder(this)
-            .setTitle(AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status)
-                    ? "AUTO LOGIN PAUSED" : "RESUME AUTO LOGIN")
+            .setTitle(AL_STATUS_PAUSED.equals(status) ? "AUTO LOGIN PAUSED"
+                    : AL_STATUS_STOPPED.equals(status) ? "AUTO LOGIN STOPPED" : "RESUME AUTO LOGIN")
             .setMessage(done + " / " + total + " completed\n\nResume from: " + next)
             .setCancelable(false)
             .setPositiveButton("RESUME", (d, w) -> resumeAutoLogin())
@@ -1692,20 +1712,27 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.addAll(rebuilt);
         autoLoginIndex = index;
         autoLoginRunning = true;
+        boolean waitingConfirmation = prefs.getBoolean(KEY_AL_WAITING_CONFIRMATION, false);
         prefs.edit()
             .putInt(KEY_AL_SUCCESS, autoLoginSuccessCount)
             .putInt(KEY_AL_FAILED, autoLoginFailedCount)
             .putInt(KEY_AL_TOTAL, autoLoginAccounts.size())
             .putString(KEY_AL_STATUS, AL_STATUS_RUNNING)
+            .putString(KEY_AL_EFOOTBALL_STATE, waitingConfirmation ? AL_GAME_WAITING : AL_GAME_PREPARING)
             .remove(KEY_AL_LAST_ERROR)
             .apply();
 
+        setMode(MODE_AUTO_LOGIN);
         showAutoLoginScreen();
         addActivityLog("AUTO LOGIN dilanjutkan dari akun:" + autoLoginAccounts.get(index).name);
         updateStatus("AUTO LOGIN dilanjutkan [" + (index + 1) + "/" + autoLoginAccounts.size() + "]");
         refreshAutoLoginScreen();
-        updateWebhookProgress(AL_STATUS_RUNNING);
-        runNextAutoLogin();
+        updateWebhookProgress(waitingConfirmation ? AL_STATUS_WAITING : AL_STATUS_RUNNING);
+        if (waitingConfirmation) {
+            showAutoLoginConfirmationDialog();
+        } else {
+            runNextAutoLogin();
+        }
     }
 
     private void startAutoLogin(){
@@ -1871,6 +1898,7 @@ public class MainActivity extends AppCompatActivity {
 
         Account account=autoLoginAccounts.get(autoLoginIndex);
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
+        prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_PREPARING).apply();
         persistProgress(AL_STATUS_RUNNING, account.name, nextAccountName(), null);
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
@@ -1892,6 +1920,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void continueAutoLoginAfterCopy(Account account){
         if (!autoLoginRunning) return;
+        prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_OPENED).apply();
+        updateWebhookProgress(AL_STATUS_RUNNING);
         if (!launchGame()) {
             failAutoLogin("Gagal membuka eFootball untuk " + account.name);
             return;
@@ -1907,6 +1937,8 @@ public class MainActivity extends AppCompatActivity {
         autoLoginRunning=false;
         autoLoginFailedCount = Math.max(autoLoginFailedCount, Math.max(0, total - autoLoginSuccessCount));
         prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
+        prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_COMPLETED)
+            .putBoolean(KEY_AL_WAITING_CONFIRMATION, false).apply();
         persistProgress(AL_STATUS_COMPLETED, "", "", null);
         addActivityLog("AUTO LOGIN selesai. Berhasil: " + autoLoginSuccessCount + ", Gagal: " + autoLoginFailedCount);
         updateStatus("✓ AUTO LOGIN selesai. Berhasil: "+autoLoginSuccessCount+", Gagal: "+autoLoginFailedCount);
@@ -1918,6 +1950,8 @@ public class MainActivity extends AppCompatActivity {
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
+        prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_STOPPED)
+            .putBoolean(KEY_AL_WAITING_CONFIRMATION, false).apply();
         persistProgress(AL_STATUS_FAILED, prefs.getString(KEY_AL_CURRENT_ACCOUNT, ""), nextAccountName(), reason);
         addActivityLog("AUTO LOGIN FAILED: " + reason);
         updateStatus("AUTO LOGIN FAILED: " + reason);
@@ -1935,18 +1969,24 @@ public class MainActivity extends AppCompatActivity {
         }
 
         updateStatus("Konfirmasi login: " + account.category + " / " + account.name);
+        prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, true).putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_WAITING).apply();
+        updateWebhookProgress(AL_STATUS_WAITING);
+
         new AlertDialog.Builder(this)
             .setTitle("KONFIRMASI LOGIN")
             .setMessage("Apakah akun " + account.name + " sudah berhasil login di eFootball?")
             .setCancelable(false)
             .setPositiveButton("LOGIN BERHASIL", (d,w) -> confirmAutoLoginSuccess(account))
             .setNegativeButton("BELUM LOGIN", (d,w) -> retryAutoLogin(account))
+            .setNeutralButton("PAUSE", (d,w) -> pauseAutoLogin())
             .show();
     }
 
     private void confirmAutoLoginSuccess(Account account){
         markLoginVerifiedToday(account);
         autoLoginSuccessCount++;
+        prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, false)
+                .putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_VERIFIED).apply();
         persistProgress(AL_STATUS_RUNNING, account.name, nextAccountName(), null);
         addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
         updateStatus("✓ " + account.name + " tercatat sudah login hari ini.");
@@ -1963,6 +2003,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void retryAutoLogin(Account account){
+        prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, false)
+                .putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_RETRY).apply();
         persistProgress(AL_STATUS_RUNNING, account.name, account.name, null);
         addActivityLog("LOGIN BELUM BERHASIL: " + account.category + " / " + account.name);
         updateStatus("Login belum terverifikasi: " + account.name + ". Menunggu delay sebelum coba lagi.");
@@ -2036,25 +2078,11 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * User pressed STOP. Progress is preserved as PAUSED (not reset), so the session can be
-     * resumed later - either immediately via CONTINUE or after an app restart via RESUME dialog.
-     * The single webhook message is edited to the PAUSED state (never a new message).
-     */
+    /** Stop after a successful login. The confirmed account remains counted and the next
+     * account becomes the resume point. */
     private void stopAutoLogin(){
-        boolean wasRunning=autoLoginRunning;
-        if(!wasRunning && !hasActiveSession()){
-            // Nothing to pause; behave like a no-op teardown.
-            autoLoginHandler.removeCallbacksAndMessages(null);
-            workflowLaunchPending=false;
-            if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
-            return;
-        }
-        if(!wasRunning){
-            // Already paused/failed; just show the paused screen.
-            showAutoLoginScreen();
-            return;
-        }
+        if (!autoLoginRunning || autoLoginSuccessCount <= 0) return;
+
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
@@ -2062,11 +2090,42 @@ public class MainActivity extends AppCompatActivity {
 
         String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
         String next = nextAccountName();
+        autoLoginIndex = Math.min(autoLoginIndex + 1, Math.max(0, autoLoginAccounts.size()));
+        prefs.edit()
+            .putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex)
+            .remove(KEY_AUTO_LOGIN_PENDING)
+            .putBoolean(KEY_AL_WAITING_CONFIRMATION, false)
+            .putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_STOPPED)
+            .apply();
+
         persistProgress(AL_STATUS_STOPPED, current, next, null);
-        addActivityLog("AUTO LOGIN dihentikan (PAUSED). Berikutnya: " + next);
-        updateStatus("AUTO LOGIN PAUSED. Berikutnya: " + next);
+        addActivityLog("AUTO LOGIN dihentikan setelah login berhasil. Terakhir: " + current + ". Berikutnya: " + next);
+        updateStatus("AUTO LOGIN STOPPED. Berikutnya: " + next);
         showAutoLoginScreen();
         updateWebhookProgress(AL_STATUS_STOPPED);
+    }
+
+    /** Temporarily pauses Auto Login without advancing the current account. */
+    private void pauseAutoLogin(){
+        if(!autoLoginRunning) return;
+
+        autoLoginRunning=false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        workflowLaunchPending=false;
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
+
+        Account pending = findAutoLoginPendingAccount();
+        String current = pending != null ? pending.name : prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
+        boolean waitingConfirmation = prefs.getBoolean(KEY_AL_WAITING_CONFIRMATION, false);
+        prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_PAUSED).apply();
+        persistProgress(AL_STATUS_PAUSED, current, current, null);
+        addActivityLog("AUTO LOGIN PAUSED: " + (current.isEmpty() ? "belum ada akun aktif" : current));
+        updateStatus("AUTO LOGIN PAUSED. Resume dari: " + (current.isEmpty() ? "akun saat ini" : current));
+        showAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_PAUSED);
+
+        // Keep the confirmation state intact so Resume returns to the same confirmation/account.
+        prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, waitingConfirmation).apply();
     }
 
     /** Hard reset of auto login state without touching the persisted progress session. */
@@ -2083,7 +2142,8 @@ public class MainActivity extends AppCompatActivity {
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
-        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
+        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE)
+            .remove(KEY_AL_WAITING_CONFIRMATION).remove(KEY_AL_EFOOTBALL_STATE).apply();
         if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
     }
 
@@ -2111,7 +2171,6 @@ public class MainActivity extends AppCompatActivity {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             addActivityLog("Berhasil membuka eFootball.");
-            notifyDiscord("🎮 **EFOOTBALL DIBUKA**\nPackage: `"+PACKAGE+"`");
             return true;
         } catch(Exception e) {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
