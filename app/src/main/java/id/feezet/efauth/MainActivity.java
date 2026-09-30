@@ -1772,7 +1772,10 @@ public class MainActivity extends AppCompatActivity {
             }
             int shown = "unverified".equals(mode) ? total - verified : total;
             String label = cat + "  (" + shown + ("unverified".equals(mode) ? " belum login" : " akun") + ")";
-            Button b = secondaryButton(label, v -> startAutoLoginForCategory(cat));
+            Button b = secondaryButton(label, v -> {
+                dlg.dismiss();
+                startAutoLoginForCategory(cat);
+            });
             box.addView(b, spacedLp(dp(6)));
         }
         final AlertDialog dlg = new AlertDialog.Builder(this)
@@ -1985,7 +1988,6 @@ public class MainActivity extends AppCompatActivity {
             .setCancelable(false)
             .setPositiveButton("LOGIN BERHASIL", (d,w) -> confirmAutoLoginSuccess(account))
             .setNegativeButton("BELUM LOGIN", (d,w) -> retryAutoLogin(account))
-            .setNeutralButton("PAUSE", (d,w) -> pauseAutoLogin())
             .show();
     }
 
