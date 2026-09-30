@@ -1884,7 +1884,6 @@ public class MainActivity extends AppCompatActivity {
             .setCancelable(false)
             .setPositiveButton("LOGIN BERHASIL", (d,w) -> confirmAutoLoginSuccess(account))
             .setNegativeButton("BELUM LOGIN", (d,w) -> retryAutoLogin(account))
-            .setNeutralButton("STOP", (d,w) -> stopAutoLogin())
             .show();
     }
 
