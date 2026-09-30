@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="al_session_id">1717171717171</string>
+    <int name="al_total" value="100" />
+    <int name="al_success" value="36" />
+    <int name="al_failed" value="1" />
+    <string name="al_status">PAUSED</string>
+    <string name="al_current_account">Account 37</string>
+    <string name="al_next_account">Account 38</string>
+    <string name="al_started_at">1717170000000</string>
+    <string name="al_updated_at">1717170600000</string>
+    <string name="al_finished_at">1717170600000</string>
+    <string name="auto_login_mode">all</string>
+    <string name="auto_login_category">TEST</string>
+    <int name="auto_login_index" value="36" />
+    <string name="workflow_mode">none</string>
+</map>

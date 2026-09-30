@@ -1,0 +1,30 @@
+R_DEF: Internal format may change without notice
+local
+color accent
+color bgBase
+color black
+color buttonBg
+color dangerBg
+color dangerText
+color divider
+color primary
+color primaryDark
+color retroBlue
+color retroGreen
+color retroOrange
+color retroPink
+color retroPurple
+color retroRed
+color successBg
+color surface
+color surfaceElevated
+color textPrimary
+color textSecondary
+color white
+drawable btn_danger
+drawable btn_primary
+drawable btn_secondary
+drawable card_bg
+drawable evault_icon
+drawable input_bg
+style AppTheme

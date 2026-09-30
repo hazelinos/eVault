@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#FFC567</color>
+    <color name="bgBase">#1A1A2E</color>
+    <color name="black">#000000</color>
+    <color name="buttonBg">#0F3460</color>
+    <color name="dangerBg">#FD5A46</color>
+    <color name="dangerText">#FFFFFF</color>
+    <color name="divider">#2A3A5A</color>
+    <color name="primary">#058CD7</color>
+    <color name="primaryDark">#046BA8</color>
+    <color name="retroBlue">#058CD7</color>
+    <color name="retroGreen">#00995E</color>
+    <color name="retroOrange">#FFC567</color>
+    <color name="retroPink">#FB7DA8</color>
+    <color name="retroPurple">#552CB7</color>
+    <color name="retroRed">#FD5A46</color>
+    <color name="successBg">#00995E</color>
+    <color name="surface">#16213E</color>
+    <color name="surfaceElevated">#0F3460</color>
+    <color name="textPrimary">#F8F9FA</color>
+    <color name="textSecondary">#B8C5D6</color>
+    <color name="white">#FFFFFF</color>
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/bgBase</item>
+        <item name="android:windowBackground">@color/bgBase</item>
+        <item name="android:statusBarColor">@color/bgBase</item>
+        <item name="android:navigationBarColor">@color/bgBase</item>
+        <item name="android:textColorPrimary">@color/textPrimary</item>
+        <item name="android:textColorSecondary">@color/textSecondary</item>
+        <item name="android:textColorHint">@color/textSecondary</item>
+    </style>
+</resources>

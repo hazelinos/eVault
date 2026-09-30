@@ -10,12 +10,16 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.BaseAdapter;
@@ -35,11 +39,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -61,6 +70,24 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_AUTO_LOGIN_INDEX = "auto_login_index";
     private static final String KEY_AUTO_LOGIN_PENDING = "auto_login_pending";
     private static final String MODE_AUTO_LOGIN = "auto_login";
+    // ---- Auto Login progress session persistence ----
+    private static final String KEY_AL_SESSION_ID = "al_session_id";
+    private static final String KEY_AL_TOTAL = "al_total";
+    private static final String KEY_AL_SUCCESS = "al_success";
+    private static final String KEY_AL_FAILED = "al_failed";
+    private static final String KEY_AL_STATUS = "al_status";
+    private static final String KEY_AL_CURRENT_ACCOUNT = "al_current_account";
+    private static final String KEY_AL_NEXT_ACCOUNT = "al_next_account";
+    private static final String KEY_AL_STARTED_AT = "al_started_at";
+    private static final String KEY_AL_UPDATED_AT = "al_updated_at";
+    private static final String KEY_AL_WEBHOOK_MSG_ID = "al_webhook_msg_id";
+    private static final String KEY_AL_LAST_ERROR = "al_last_error";
+    private static final String KEY_AL_FINISHED_AT = "al_finished_at";
+    private static final String KEY_AL_ACCOUNTS = "al_accounts";
+    private static final String AL_STATUS_RUNNING = "RUNNING";
+    private static final String AL_STATUS_PAUSED = "PAUSED";
+    private static final String AL_STATUS_COMPLETED = "COMPLETED";
+    private static final String AL_STATUS_FAILED = "FAILED";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
     private static final int MAX_ACTIVITY_LOGS = 300;
     private static final String NAMING_NUMERIC = "numeric";
@@ -76,10 +103,33 @@ public class MainActivity extends AppCompatActivity {
     private final ArrayList<Account> autoLoginAccounts = new ArrayList<>();
     private boolean workflowLaunchPending = false;
     private final Handler autoLoginHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService autoLoginIoExecutor = Executors.newSingleThreadExecutor();
     private boolean autoLoginRunning = false;
     private int autoLoginIndex = 0;
+    private int autoLoginSuccessCount = 0;
+    private int autoLoginFailedCount = 0;
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
+
+    // ---- Auto Login progress screen ----
+    private View mainScreen;
+    private View autoLoginScreen;
+    private FrameLayout screenHost;
+    private TextView alProgressCount;
+    private TextView alProgressBar;
+    private TextView alPercent;
+    private TextView alCurrent;
+    private TextView alSuccess;
+    private TextView alFailed;
+    private TextView alRemaining;
+    private TextView alStatus;
+    private TextView alStoppedAt;
+    private TextView alResumeFrom;
+    private TextView alDuration;
+    private TextView alErrorReason;
+    private Button alStopButton;
+    private Button alContinueButton;
+    private Button alExitButton;
 
     private final ActivityResultLauncher<Intent> pickLibrary = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(), r -> {
@@ -125,6 +175,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean createResumeDialogShown = false;
+    private boolean autoLoginResumeDialogShown = false;
 
     @Override protected void onResume() {
         super.onResume();
@@ -147,6 +198,21 @@ public class MainActivity extends AppCompatActivity {
             createResumeDialogShown = true;
             showCreateResumeDialog();
         }
+
+        // If eVault was closed/restarted while an Auto Login session was still RUNNING/PAUSED/FAILED,
+        // offer to resume instead of starting over. Never restart from account 1.
+        if (!autoLoginRunning
+                && !autoLoginResumeDialogShown
+                && hasActiveSession()) {
+            autoLoginResumeDialogShown = true;
+            loadCountersFromSession();
+            showResumeAutoLoginDialog();
+        }
+    }
+
+    private void loadCountersFromSession(){
+        autoLoginSuccessCount = prefs.getInt(KEY_AL_SUCCESS, 0);
+        autoLoginFailedCount = prefs.getInt(KEY_AL_FAILED, 0);
     }
 
     private boolean hasPendingCreateWorkflow() {
@@ -295,7 +361,7 @@ public class MainActivity extends AppCompatActivity {
         row3.addView(saveAuthBtn, weightLp(dp(8), 0));
 
         Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> {
-            stopAutoLogin();
+            teardownAutoLogin();
             clearWorkflow();
             launchGame();
         });
@@ -318,7 +384,128 @@ public class MainActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(color(R.color.bgBase));
         scroll.addView(root);
-        setContentView(scroll);
+        this.mainScreen = scroll;
+
+        // A single FrameLayout host lets us swap between the main screen and the
+        // Auto Login progress screen without rebuilding the whole UI.
+        FrameLayout host = new FrameLayout(this);
+        host.setBackgroundColor(color(R.color.bgBase));
+        host.addView(this.mainScreen, new FrameLayout.LayoutParams(-1, -1));
+        this.screenHost = host;
+        setContentView(host);
+    }
+
+    // ================= Auto Login progress screen =================
+
+    private void showAutoLoginScreen() {
+        buildAutoLoginScreen();
+        if (this.autoLoginScreen != null && this.autoLoginScreen.getParent() instanceof ViewGroup) {
+            ((ViewGroup) this.autoLoginScreen.getParent()).removeView(this.autoLoginScreen);
+        }
+        if (this.screenHost != null) {
+            this.screenHost.addView(this.autoLoginScreen, new FrameLayout.LayoutParams(-1, -1));
+        }
+        refreshAutoLoginScreen();
+    }
+
+    private void hideAutoLoginScreen() {
+        if (this.autoLoginScreen != null && this.autoLoginScreen.getParent() instanceof ViewGroup) {
+            ((ViewGroup) this.autoLoginScreen.getParent()).removeView(this.autoLoginScreen);
+        }
+        this.autoLoginScreen = null;
+    }
+
+    private void buildAutoLoginScreen() {
+        if (this.autoLoginScreen != null) return;
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(color(R.color.bgBase));
+        root.setPadding(dp(20), dp(28), dp(20), dp(24));
+
+        TextView title = new TextView(this);
+        title.setText("AUTO LOGIN");
+        title.setTextSize(26);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(color(R.color.textPrimary));
+        LinearLayout.LayoutParams titleLp = fullLp();
+        titleLp.bottomMargin = dp(18);
+        root.addView(title, titleLp);
+
+        LinearLayout cardBox = card();
+
+        alProgressCount = new TextView(this);
+        alProgressCount.setTextSize(22);
+        alProgressCount.setTypeface(Typeface.DEFAULT_BOLD);
+        alProgressCount.setTextColor(color(R.color.textPrimary));
+        alProgressCount.setGravity(Gravity.CENTER);
+        cardBox.addView(alProgressCount, fullLp());
+
+        alProgressBar = new TextView(this);
+        alProgressBar.setTextSize(18);
+        alProgressBar.setTextColor(color(R.color.accent));
+        alProgressBar.setGravity(Gravity.CENTER);
+        alProgressBar.setTypeface(Typeface.MONOSPACE);
+        LinearLayout.LayoutParams barLp = fullLp();
+        barLp.topMargin = dp(10);
+        cardBox.addView(alProgressBar, barLp);
+
+        alPercent = new TextView(this);
+        alPercent.setTextSize(14);
+        alPercent.setTextColor(color(R.color.textSecondary));
+        alPercent.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams pctLp = fullLp();
+        pctLp.topMargin = dp(4);
+        cardBox.addView(alPercent, pctLp);
+
+        alCurrent = infoLine(cardBox, "Current:");
+        alSuccess = infoLine(cardBox, "Successful:");
+        alFailed = infoLine(cardBox, "Failed:");
+        alRemaining = infoLine(cardBox, "Remaining:");
+        alStoppedAt = infoLine(cardBox, "Stopped at:");
+        alResumeFrom = infoLine(cardBox, "Resume from:");
+        alDuration = infoLine(cardBox, "Duration:");
+        alErrorReason = infoLine(cardBox, "Error:");
+
+        alStatus = new TextView(this);
+        alStatus.setTextSize(16);
+        alStatus.setTypeface(Typeface.DEFAULT_BOLD);
+        alStatus.setTextColor(color(R.color.accent));
+        alStatus.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams statusLp = fullLp();
+        statusLp.topMargin = dp(14);
+        cardBox.addView(alStatus, statusLp);
+
+        root.addView(cardBox, cardLp());
+
+        alStopButton = dangerButton("STOP", v -> stopAutoLogin());
+        alContinueButton = primaryButton("CONTINUE", v -> resumeAutoLogin());
+        alExitButton = secondaryButton("EXIT", v -> exitAutoLogin());
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(alStopButton, weightLp(dp(8), 0));
+        row.addView(alContinueButton, weightLp(dp(8), 1));
+        row.addView(alExitButton, weightLp(dp(8), 2));
+        LinearLayout.LayoutParams rowLp = fullLp();
+        rowLp.topMargin = dp(8);
+        root.addView(row, rowLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(color(R.color.bgBase));
+        scroll.addView(root);
+        this.autoLoginScreen = scroll;
+    }
+
+    private TextView infoLine(LinearLayout parent, String label) {
+        TextView tv = new TextView(this);
+        tv.setTextSize(14);
+        tv.setTextColor(color(R.color.textSecondary));
+        tv.setTag(label);
+        LinearLayout.LayoutParams lp = fullLp();
+        lp.topMargin = dp(6);
+        parent.addView(tv, lp);
+        return tv;
     }
 
     // ---------- UI helpers ----------
@@ -587,13 +774,13 @@ public class MainActivity extends AppCompatActivity {
         rebuild.run();
         listView.setAdapter(adapter);
 
-        search.addTextChangedListener(new android.text.TextWatcher() {
+        search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 rebuild.run();
                 adapter.notifyDataSetChanged();
             }
-            public void afterTextChanged(android.text.Editable s) {}
+            public void afterTextChanged(Editable s) {}
         });
 
         final AlertDialog dialog = new AlertDialog.Builder(this)
@@ -652,7 +839,7 @@ public class MainActivity extends AppCompatActivity {
     private String nameOf(DocumentFile d) { return d.getName() == null ? "Unnamed" : d.getName(); }
 
     private void switchSelected() {
-        stopAutoLogin(); clearWorkflow();
+        teardownAutoLogin(); clearWorkflow();
         if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
         Account selected = selectedAccount();
         if (selected != null && accounts.contains(selected)) {
@@ -665,14 +852,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void deleteCurrentAuth() {
-        stopAutoLogin(); clearWorkflow(); DocumentFile target = getTree(KEY_TARGET);
+        teardownAutoLogin(); clearWorkflow(); DocumentFile target = getTree(KEY_TARGET);
         if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; }
         DocumentFile auth = target.findFile(AUTH_FILE); if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH saat ini."); return; }
         new AlertDialog.Builder(this).setTitle("Hapus AUTH Saat Ini").setMessage("Hapus file AUTH yang sedang terpasang di target?").setNegativeButton("BATAL", null).setPositiveButton("HAPUS", (d,w) -> updateStatus(auth.delete() ? "✓ AUTH saat ini dihapus." : "Gagal menghapus AUTH. Periksa izin folder.")).show();
     }
 
     private void showSaveAuthDialog() {
-        stopAutoLogin();
+        teardownAutoLogin();
         clearWorkflow();
 
         DocumentFile target = getTree(KEY_TARGET);
@@ -857,7 +1044,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showDeleteDataConfirmDialog() {
-        stopAutoLogin(); clearWorkflow();
+        teardownAutoLogin(); clearWorkflow();
         new AlertDialog.Builder(this)
             .setTitle("Hapus Data")
             .setMessage("Hapus AUTH di folder AUTH eFootball?")
@@ -876,7 +1063,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showCreateDialog() {
-        stopAutoLogin(); clearWorkflow(); final EditText input=new EditText(this); input.setInputType(2); input.setSingleLine(true); input.setHint("Jumlah akun");
+        teardownAutoLogin(); clearWorkflow(); final EditText input=new EditText(this); input.setInputType(2); input.setSingleLine(true); input.setHint("Jumlah akun");
         new AlertDialog.Builder(this).setTitle("BUAT AKUN BARU").setMessage("Mau buat berapa akun?").setView(input).setNegativeButton("BATAL",null).setPositiveButton("LANJUT",(d,w)->{
             int count; try{count=Integer.parseInt(input.getText().toString().trim());}catch(Exception e){count=0;}
             if(count<1){updateStatus("Jumlah akun minimal 1.");return;} prefs.edit().putInt(KEY_CREATE_COUNT,count).apply(); showCreateNamingDialog(count);
@@ -923,7 +1110,7 @@ public class MainActivity extends AppCompatActivity {
         String resumeFrom = names.isEmpty() ? "-" : names.get(0);
         addActivityLog("CREATE ACCOUNT target: " + prefs.getString(KEY_CREATE_CATEGORY, "AKUN"));
         addActivityLog("CREATE ACCOUNT mode: " + naming + ", lanjut dari: " + resumeFrom + ", jumlah: " + count);
-        prefs.edit().putString(KEY_CREATE_NAMES,android.text.TextUtils.join("|",names)).putInt(KEY_CREATE_INDEX,0).apply();
+        prefs.edit().putString(KEY_CREATE_NAMES, TextUtils.join("|",names)).putInt(KEY_CREATE_INDEX,0).apply();
         setMode(MODE_CREATE);
         launchCurrentCreateAccount();
     }
@@ -1138,6 +1325,332 @@ public class MainActivity extends AppCompatActivity {
         if (!url.isEmpty()) DiscordWebhook.send(url, message);
     }
 
+    // ============ Auto Login progress session (persistent) ============
+
+    private void beginSession(int total){
+        autoLoginSuccessCount = 0;
+        autoLoginFailedCount = 0;
+        String sessionId = String.valueOf(System.currentTimeMillis());
+        String now = String.valueOf(System.currentTimeMillis());
+        prefs.edit()
+            .putString(KEY_AL_SESSION_ID, sessionId)
+            .putInt(KEY_AL_TOTAL, total)
+            .putInt(KEY_AL_SUCCESS, 0)
+            .putInt(KEY_AL_FAILED, 0)
+            .putString(KEY_AL_STATUS, AL_STATUS_RUNNING)
+            .putString(KEY_AL_CURRENT_ACCOUNT, "")
+            .putString(KEY_AL_NEXT_ACCOUNT, "")
+            .putString(KEY_AL_STARTED_AT, now)
+            .putString(KEY_AL_UPDATED_AT, now)
+            .remove(KEY_AL_FINISHED_AT)
+            .remove(KEY_AL_LAST_ERROR)
+            .remove(KEY_AL_WEBHOOK_MSG_ID)
+            .putString(KEY_AL_ACCOUNTS, joinAccountKeys())
+            .apply();
+
+        // Create the single progress message once for this session. Webhook failures never
+        // block or fail the login process; the message id stays null and edits are skipped.
+        String url = currentWebhookUrl();
+        if (!url.isEmpty()) {
+            DiscordWebhook.sendTransaction(url, renderWebhookProgress(AL_STATUS_RUNNING, null), id -> {
+                if (id != null) prefs.edit().putString(KEY_AL_WEBHOOK_MSG_ID, id).apply();
+            });
+        }
+    }
+
+    private String currentWebhookUrl(){
+        String url = prefs.getString(KEY_DISCORD_WEBHOOK, "");
+        return url == null ? "" : url.trim();
+    }
+
+    private boolean hasActiveSession(){
+        String status = prefs.getString(KEY_AL_STATUS, "");
+        return AL_STATUS_RUNNING.equals(status) || AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status);
+    }
+
+    private void persistProgress(String status, String current, String next, String error){
+        int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
+        prefs.edit()
+            .putInt(KEY_AL_TOTAL, total)
+            .putInt(KEY_AL_SUCCESS, autoLoginSuccessCount)
+            .putInt(KEY_AL_FAILED, autoLoginFailedCount)
+            .putString(KEY_AL_STATUS, status)
+            .putString(KEY_AL_CURRENT_ACCOUNT, current == null ? "" : current)
+            .putString(KEY_AL_NEXT_ACCOUNT, next == null ? "" : next)
+            .putString(KEY_AL_UPDATED_AT, String.valueOf(System.currentTimeMillis()))
+            .apply();
+        if (error != null) prefs.edit().putString(KEY_AL_LAST_ERROR, error).apply();
+        if (AL_STATUS_COMPLETED.equals(status) || AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status)) {
+            if (!prefs.contains(KEY_AL_FINISHED_AT) || AL_STATUS_COMPLETED.equals(status))
+                prefs.edit().putString(KEY_AL_FINISHED_AT, String.valueOf(System.currentTimeMillis())).apply();
+        }
+    }
+
+    /** Edits the single session webhook message (never creates a new one). */
+    private void updateWebhookProgress(String status){
+        String url = currentWebhookUrl();
+        if (url.isEmpty()) return;
+        String messageId = prefs.getString(KEY_AL_WEBHOOK_MSG_ID, null);
+        if (messageId == null || messageId.isEmpty()) return;
+        // Webhook is monitoring-only: ignore/failure silently, never spam retries.
+        DiscordWebhook.edit(url, messageId, renderWebhookProgress(status, null), null);
+    }
+
+    private String nextAccountName(){
+        int nextIndex = autoLoginIndex + 1;
+        if (nextIndex >= 0 && nextIndex < autoLoginAccounts.size()) {
+            return autoLoginAccounts.get(nextIndex).name;
+        }
+        return "-";
+    }
+
+    private String renderWebhookProgress(String status, String errorReason){
+        int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
+        int done = autoLoginSuccessCount + autoLoginFailedCount;
+        int percent = progressPercent();
+        String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
+        String bar = progressBar(percent);
+        String started = formatClock(prefs.getString(KEY_AL_STARTED_AT, null));
+        String updated = formatClock(prefs.getString(KEY_AL_UPDATED_AT, null));
+        StringBuilder sb = new StringBuilder();
+        if (AL_STATUS_COMPLETED.equals(status)) {
+            sb.append("\u2705 eVault \u2014 AUTO LOGIN COMPLETE\n");
+        } else if (AL_STATUS_PAUSED.equals(status)) {
+            sb.append("\u23F8\uFE0F eVault \u2014 AUTO LOGIN\n");
+        } else if (AL_STATUS_FAILED.equals(status)) {
+            sb.append("\u274C eVault \u2014 AUTO LOGIN FAILED\n");
+        } else {
+            sb.append("\u2601\uFE0F eVault \u2014 AUTO LOGIN\n");
+        }
+        sb.append("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
+        sb.append("Progress\n").append(done).append(" / ").append(total).append(" accounts\n\n");
+        sb.append(bar).append(" ").append(percent).append("%\n\n");
+
+        if (AL_STATUS_PAUSED.equals(status)) {
+            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
+            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
+            sb.append("Stopped at:\n").append(current).append("\n\n");
+            sb.append("Resume from:\n").append(nextAccountName()).append("\n\n");
+        } else if (AL_STATUS_FAILED.equals(status)) {
+            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
+            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
+            sb.append("Current:\n").append(current).append("\n\n");
+            if (errorReason != null && !errorReason.isEmpty()) sb.append("Reason:\n").append(errorReason).append("\n\n");
+            sb.append("Resume from:\n").append(nextAccountName()).append("\n\n");
+        } else if (AL_STATUS_COMPLETED.equals(status)) {
+            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
+            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n\n");
+            sb.append("\u23F1\uFE0F Duration: ").append(formatDuration()).append("\n\n");
+        } else {
+            sb.append("\uD83D\uDFE2 Current\n").append(current).append("\n\n");
+            sb.append("\u2705 Successful: ").append(autoLoginSuccessCount).append("\n");
+            sb.append("\u274C Failed: ").append(autoLoginFailedCount).append("\n");
+            sb.append("\u23F3 Remaining: ").append(Math.max(0, total - done)).append("\n\n");
+            sb.append("Started: ").append(started).append("\n");
+            sb.append("Last update: ").append(updated).append("\n\n");
+        }
+
+        sb.append("Status: ").append(statusEmoji(status)).append(" ").append(status).append("\n");
+        sb.append("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n");
+        return sb.toString();
+    }
+
+    private String statusEmoji(String status){
+        if (AL_STATUS_COMPLETED.equals(status)) return "\uD83D\uDFE2";
+        if (AL_STATUS_PAUSED.equals(status)) return "\uD83D\uDFE1";
+        if (AL_STATUS_FAILED.equals(status)) return "\uD83D\uDD34";
+        return "\uD83D\uDFE2";
+    }
+
+    private String formatClock(String millis){
+        if (millis == null || millis.isEmpty()) return "--:--";
+        try {
+            return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(Long.parseLong(millis)));
+        } catch (Exception e) {
+            return "--:--";
+        }
+    }
+
+    private String formatDuration(){
+        String started = prefs.getString(KEY_AL_STARTED_AT, null);
+        String finished = prefs.getString(KEY_AL_FINISHED_AT, null);
+        long end = System.currentTimeMillis();
+        if (finished != null && !finished.isEmpty()) {
+            try { end = Long.parseLong(finished); } catch (Exception ignored) {}
+        }
+        long start = end;
+        if (started != null && !started.isEmpty()) {
+            try { start = Long.parseLong(started); } catch (Exception ignored) {}
+        }
+        long seconds = Math.max(0, (end - start) / 1000L);
+        long minutes = seconds / 60;
+        long secs = seconds % 60;
+        return minutes + "m " + secs + "s";
+    }
+
+    private int progressPercent(){
+        int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
+        if (total <= 0) return 0;
+        int done = autoLoginSuccessCount + autoLoginFailedCount;
+        int percent = (int) Math.round(done * 100.0 / total);
+        return Math.max(0, Math.min(100, percent));
+    }
+
+    private String progressBar(int percent){
+        int filled = Math.round(percent / 100f * 18f);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 18; i++) sb.append(i < filled ? "\u2588" : "\u2591");
+        return sb.toString();
+    }
+
+    // ============ Auto Login progress screen refresh / navigation ============
+
+    private void refreshAutoLoginScreen(){
+        if (autoLoginScreen == null) return;
+        String status = prefs.getString(KEY_AL_STATUS, AL_STATUS_RUNNING);
+        int total = prefs.getInt(KEY_AL_TOTAL, autoLoginAccounts.size());
+        int done = autoLoginSuccessCount + autoLoginFailedCount;
+        int percent = progressPercent();
+        String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
+        String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
+        String error = prefs.getString(KEY_AL_LAST_ERROR, "");
+
+        alProgressCount.setText(done + " / " + total);
+        alProgressBar.setText(progressBar(percent));
+        alPercent.setText(percent + "%");
+        alCurrent.setText("Current: " + (current.isEmpty() ? "-" : current));
+        alSuccess.setText("Successful: " + autoLoginSuccessCount);
+        alFailed.setText("Failed: " + autoLoginFailedCount);
+        alRemaining.setText("Remaining: " + Math.max(0, total - done));
+        alStatus.setText("Status: " + statusEmoji(status) + " " + status);
+
+        boolean paused = AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status);
+        alStoppedAt.setVisibility(paused ? View.VISIBLE : View.GONE);
+        alResumeFrom.setVisibility(paused ? View.VISIBLE : View.GONE);
+        alErrorReason.setVisibility(AL_STATUS_FAILED.equals(status) && !error.isEmpty() ? View.VISIBLE : View.GONE);
+        alDuration.setVisibility(AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
+
+        if (paused) {
+            alStoppedAt.setText("Stopped at: " + (current.isEmpty() ? "-" : current));
+            alResumeFrom.setText("Resume from: " + (next.isEmpty() ? "-" : next));
+        }
+        if (AL_STATUS_FAILED.equals(status) && !error.isEmpty()) {
+            alErrorReason.setText("Error: " + error);
+        }
+        if (AL_STATUS_COMPLETED.equals(status)) {
+            alDuration.setText("Duration: " + formatDuration());
+        }
+
+        alStopButton.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
+        alContinueButton.setVisibility(paused ? View.VISIBLE : View.GONE);
+        alExitButton.setVisibility(paused || AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
+    }
+
+    private void exitAutoLogin(){
+        prefs.edit()
+            .remove(KEY_AL_SESSION_ID).remove(KEY_AL_STATUS).remove(KEY_AL_CURRENT_ACCOUNT)
+            .remove(KEY_AL_NEXT_ACCOUNT).remove(KEY_AL_LAST_ERROR).remove(KEY_AL_WEBHOOK_MSG_ID)
+            .apply();
+        hideAutoLoginScreen();
+        updateStatus("AUTO LOGIN ditutup. Progress dibuang.");
+    }
+
+    /** Offered on app restart when a session was left RUNNING/PAUSED/FAILED. */
+    private void showResumeAutoLoginDialog(){
+        String status = prefs.getString(KEY_AL_STATUS, "");
+        int total = prefs.getInt(KEY_AL_TOTAL, 0);
+        int success = prefs.getInt(KEY_AL_SUCCESS, 0);
+        int failed = prefs.getInt(KEY_AL_FAILED, 0);
+        int done = success + failed;
+        String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
+        if (next == null || next.isEmpty()) next = "-";
+
+        new AlertDialog.Builder(this)
+            .setTitle(AL_STATUS_PAUSED.equals(status) || AL_STATUS_FAILED.equals(status)
+                    ? "AUTO LOGIN PAUSED" : "RESUME AUTO LOGIN")
+            .setMessage(done + " / " + total + " completed\n\nResume from: " + next)
+            .setCancelable(false)
+            .setPositiveButton("RESUME", (d, w) -> resumeAutoLogin())
+            .setNegativeButton("EXIT", (d, w) -> exitAutoLogin())
+            .show();
+    }
+
+    /**
+     * Rebuilds the auto login account list for the saved session and continues from the saved
+     * index. Used both for the CONTINUE button and for the app-restart RESUME flow.
+     */
+    private void resumeAutoLogin(){
+        String category = prefs.getString(KEY_AUTO_LOGIN_CATEGORY, null);
+        String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
+        int savedIndex = prefs.getInt(KEY_AUTO_LOGIN_INDEX, 0);
+
+        if(accounts.isEmpty()) loadAccounts();
+
+        ArrayList<Account> rebuilt = new ArrayList<>();
+        if("single".equals(mode)){
+            String pendingKey = prefs.getString(KEY_AUTO_LOGIN_PENDING, null);
+            for(Account a : accounts){
+                if(pendingKey != null && accountKey(a).equals(pendingKey)) rebuilt.add(a);
+            }
+            savedIndex = 0;
+        } else if(category != null){
+            String savedAccounts = prefs.getString(KEY_AL_ACCOUNTS, "");
+            for (String savedKey : split(savedAccounts)) {
+                for (Account a : accounts) {
+                    if (accountKey(a).equals(savedKey)) {
+                        rebuilt.add(a);
+                        break;
+                    }
+                }
+            }
+            if (rebuilt.isEmpty()) {
+                for(Account a : accounts){
+                    if(!a.category.equals(category)) continue;
+                    if("unverified".equals(mode) && isLoginVerifiedToday(a)) continue;
+                    rebuilt.add(a);
+                }
+            }
+            Collections.sort(rebuilt, (a, b) -> {
+                int sa = nameToSequence(a.name);
+                int sb = nameToSequence(b.name);
+                if (sa > 0 && sb > 0 && sa != sb) return Integer.compare(sa, sb);
+                if (sa > 0 && sb <= 0) return -1;
+                if (sa <= 0 && sb > 0) return 1;
+                return a.name.compareToIgnoreCase(b.name);
+            });
+        }
+
+        if(rebuilt.isEmpty()){
+            updateStatus("Tidak bisa resume: akun tidak ditemukan.");
+            addActivityLog("AUTO LOGIN resume gagal: akun tidak ditemukan.");
+            return;
+        }
+
+        // Restore counters from the persisted session.
+        autoLoginSuccessCount = prefs.getInt(KEY_AL_SUCCESS, 0);
+        autoLoginFailedCount = prefs.getInt(KEY_AL_FAILED, 0);
+        int index = Math.max(0, Math.min(savedIndex, rebuilt.size() - 1));
+
+        autoLoginAccounts.clear();
+        autoLoginAccounts.addAll(rebuilt);
+        autoLoginIndex = index;
+        autoLoginRunning = true;
+        prefs.edit()
+            .putInt(KEY_AL_SUCCESS, autoLoginSuccessCount)
+            .putInt(KEY_AL_FAILED, autoLoginFailedCount)
+            .putInt(KEY_AL_TOTAL, autoLoginAccounts.size())
+            .putString(KEY_AL_STATUS, AL_STATUS_RUNNING)
+            .remove(KEY_AL_LAST_ERROR)
+            .apply();
+
+        showAutoLoginScreen();
+        addActivityLog("AUTO LOGIN dilanjutkan dari akun:" + autoLoginAccounts.get(index).name);
+        updateStatus("AUTO LOGIN dilanjutkan [" + (index + 1) + "/" + autoLoginAccounts.size() + "]");
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_RUNNING);
+        runNextAutoLogin();
+    }
+
     private void startAutoLogin(){
         if(accounts.isEmpty()){updateStatus("Library kosong.");return;}
         if(autoLoginRunning)return;
@@ -1231,11 +1744,13 @@ public class MainActivity extends AppCompatActivity {
 
         autoLoginRunning=true;
         autoLoginIndex=0;
-        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + category + "**\nAkun: **" + autoLoginAccounts.size() + "**");
+        addActivityLog("AUTO LOGIN mulai: " + category + " (" + autoLoginAccounts.size() + " akun)");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_CATEGORY, category)
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
             .apply();
+        beginSession(autoLoginAccounts.size());
+        showAutoLoginScreen();
         runNextAutoLogin();
     }
 
@@ -1278,7 +1793,6 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.add(account);
         autoLoginRunning = true;
         autoLoginIndex = 0;
-        notifyDiscord("🟢 **AUTO LOGIN START**\nKategori: **" + account.category + "**\nAkun: **1**");
         prefs.edit()
             .putString(KEY_AUTO_LOGIN_MODE, "single")
             .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
@@ -1286,38 +1800,43 @@ public class MainActivity extends AppCompatActivity {
             .apply();
 
         addActivityLog("AUTO LOGIN akun dipilih: " + account.category + " / " + account.name);
+        beginSession(1);
+        showAutoLoginScreen();
         runNextAutoLogin();
     }
 
     private void runNextAutoLogin(){
         if(!autoLoginRunning) return;
         if(autoLoginIndex>=autoLoginAccounts.size()){
-            int total = autoLoginAccounts.size();
-            autoLoginRunning=false;
-            prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
-            addActivityLog("AUTO LOGIN selesai. Total diproses: " + total);
-            updateStatus("✓ AUTO LOGIN selesai. Total: "+total);
-            notifyDiscord("✅ **AUTO LOGIN SELESAI**\nDiproses: **"+total+"/"+total+"**");
+            finishAutoLoginCompleted();
             return;
         }
 
         Account account=autoLoginAccounts.get(autoLoginIndex);
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
+        persistProgress(AL_STATUS_RUNNING, account.name, nextAccountName(), null);
         addActivityLog("AUTO LOGIN memproses akun: " + account.category + " / " + account.name);
         updateStatus("AUTO LOGIN ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]: "+account.category+" / "+account.name);
-        notifyDiscord("🔵 **AUTO LOGIN** ["+(autoLoginIndex+1)+"/"+autoLoginAccounts.size()+"]\\nAkun: **"+account.name+"**");
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_RUNNING);
 
-        if(!copyAuth(account)){
-            autoLoginRunning=false;
-            addActivityLog("AUTO LOGIN gagal saat COPY AUTH: " + account.category + " / " + account.name);
-            updateStatus("AUTO LOGIN gagal COPY AUTH: " + account.name);
-            notifyDiscord("❌ **AUTO LOGIN GAGAL**\nAkun: **" + account.name + "**\nPenyebab: COPY AUTH gagal.");
-            return;
-        }
+        autoLoginIoExecutor.execute(() -> {
+            boolean copied = copyAuth(account);
+            autoLoginHandler.post(() -> {
+                if (!autoLoginRunning) return;
+                if (!copied) {
+                    failAutoLogin("COPY AUTH gagal untuk " + account.name);
+                    return;
+                }
+                continueAutoLoginAfterCopy(account);
+            });
+        });
+    }
 
+    private void continueAutoLoginAfterCopy(Account account){
+        if (!autoLoginRunning) return;
         if (!launchGame()) {
-            autoLoginRunning=false;
-            addActivityLog("AUTO LOGIN gagal membuka eFootball untuk: " + account.name);
+            failAutoLogin("Gagal membuka eFootball untuk " + account.name);
             return;
         }
 
@@ -1326,12 +1845,35 @@ public class MainActivity extends AppCompatActivity {
         setMode(MODE_AUTO_LOGIN);
     }
 
+    private void finishAutoLoginCompleted(){
+        int total = autoLoginAccounts.size();
+        autoLoginRunning=false;
+        autoLoginFailedCount = Math.max(autoLoginFailedCount, Math.max(0, total - autoLoginSuccessCount));
+        prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
+        persistProgress(AL_STATUS_COMPLETED, "", "", null);
+        addActivityLog("AUTO LOGIN selesai. Berhasil: " + autoLoginSuccessCount + ", Gagal: " + autoLoginFailedCount);
+        updateStatus("✓ AUTO LOGIN selesai. Berhasil: "+autoLoginSuccessCount+", Gagal: "+autoLoginFailedCount);
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_COMPLETED);
+    }
+
+    private void failAutoLogin(String reason){
+        autoLoginRunning=false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        workflowLaunchPending=false;
+        persistProgress(AL_STATUS_FAILED, prefs.getString(KEY_AL_CURRENT_ACCOUNT, ""), nextAccountName(), reason);
+        addActivityLog("AUTO LOGIN FAILED: " + reason);
+        updateStatus("AUTO LOGIN FAILED: " + reason);
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_FAILED);
+    }
+
     private void showAutoLoginConfirmationDialog(){
         if(!autoLoginRunning || !MODE_AUTO_LOGIN.equals(getMode())) return;
         Account account = findAutoLoginPendingAccount();
         if(account == null){
             addActivityLog("AUTO LOGIN error: akun pending tidak ditemukan.");
-            stopAutoLogin();
+            teardownAutoLogin();
             return;
         }
 
@@ -1348,8 +1890,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void confirmAutoLoginSuccess(Account account){
         markLoginVerifiedToday(account);
+        autoLoginSuccessCount++;
+        persistProgress(AL_STATUS_RUNNING, account.name, nextAccountName(), null);
         addActivityLog("LOGIN VERIFIED hari ini: " + account.category + " / " + account.name);
         updateStatus("✓ " + account.name + " tercatat sudah login hari ini.");
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_RUNNING);
 
         new AlertDialog.Builder(this)
             .setTitle("LANJUT AUTO LOGIN?")
@@ -1361,8 +1907,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void retryAutoLogin(Account account){
+        persistProgress(AL_STATUS_RUNNING, account.name, account.name, null);
         addActivityLog("LOGIN BELUM BERHASIL: " + account.category + " / " + account.name);
         updateStatus("Login belum terverifikasi: " + account.name + ". Menunggu delay sebelum coba lagi.");
+        refreshAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_RUNNING);
         advanceAutoLoginAfterDelay(account, true);
     }
 
@@ -1371,13 +1920,11 @@ public class MainActivity extends AppCompatActivity {
         autoLoginHandler.removeCallbacksAndMessages(null);
         autoLoginHandler.postDelayed(() -> {
             if(!autoLoginRunning) return;
-            if(retrySame){
-                runNextAutoLogin();
-            } else {
+            if(!retrySame){
                 autoLoginIndex++;
                 prefs.edit().putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
-                runNextAutoLogin();
             }
+            runNextAutoLogin();
         }, getAutoLoginDelayMs());
     }
 
@@ -1401,18 +1948,18 @@ public class MainActivity extends AppCompatActivity {
     private boolean isLoginVerifiedToday(Account account){
         String today = utcDate();
         String key = accountKey(account) + "\u001F" + today;
-        java.util.Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
         return verified != null && verified.contains(key);
     }
 
     private void markLoginVerifiedToday(Account account){
         String key = accountKey(account) + "\u001F" + utcDate();
-        java.util.Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
-        java.util.HashSet<String> updated = new java.util.HashSet<>();
+        Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
+        HashSet<String> updated = new HashSet<>();
         if(old != null) updated.addAll(old);
         // Keep today's records plus recent entries; stale records are harmless but pruned here.
         String today = utcDate();
-        java.util.Iterator<String> it = updated.iterator();
+        Iterator<String> it = updated.iterator();
         while(it.hasNext()){
             String entry = it.next();
             int split = entry.lastIndexOf("\u001F");
@@ -1433,18 +1980,55 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * User pressed STOP. Progress is preserved as PAUSED (not reset), so the session can be
+     * resumed later - either immediately via CONTINUE or after an app restart via RESUME dialog.
+     * The single webhook message is edited to the PAUSED state (never a new message).
+     */
     private void stopAutoLogin(){
         boolean wasRunning=autoLoginRunning;
+        if(!wasRunning && !hasActiveSession()){
+            // Nothing to pause; behave like a no-op teardown.
+            autoLoginHandler.removeCallbacksAndMessages(null);
+            workflowLaunchPending=false;
+            if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
+            return;
+        }
+        if(!wasRunning){
+            // Already paused/failed; just show the paused screen.
+            showAutoLoginScreen();
+            return;
+        }
+        autoLoginRunning=false;
+        autoLoginHandler.removeCallbacksAndMessages(null);
+        workflowLaunchPending=false;
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
+
+        String current = prefs.getString(KEY_AL_CURRENT_ACCOUNT, "");
+        String next = nextAccountName();
+        persistProgress(AL_STATUS_PAUSED, current, next, null);
+        addActivityLog("AUTO LOGIN dihentikan (PAUSED). Berikutnya: " + next);
+        updateStatus("AUTO LOGIN PAUSED. Berikutnya: " + next);
+        showAutoLoginScreen();
+        updateWebhookProgress(AL_STATUS_PAUSED);
+    }
+
+    /** Hard reset of auto login state without touching the persisted progress session. */
+    private String joinAccountKeys(){
+        StringBuilder result = new StringBuilder();
+        for (Account account : autoLoginAccounts) {
+            if (result.length() > 0) result.append("|");
+            result.append(accountKey(account));
+        }
+        return result.toString();
+    }
+
+    private void teardownAutoLogin(){
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
         prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE).apply();
         if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
-        if(wasRunning){
-            addActivityLog("AUTO LOGIN dihentikan.");
-            updateStatus("AUTO LOGIN dihentikan.");
-            notifyDiscord("🛑 **AUTO LOGIN DIHENTIKAN**");
-        }
     }
 
     private boolean copyAuth(Account account){
@@ -1484,8 +2068,12 @@ public class MainActivity extends AppCompatActivity {
     private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
-    private void updateStatus(String s){if(status!=null)status.setText(s);}
-    @Override protected void onDestroy(){saveAutoLoginDelay(); if(!isChangingConfigurations()) stopAutoLogin(); super.onDestroy();}
+    private void updateStatus(String s){if(status!=null)status.post(() -> status.setText(s));}
+    @Override protected void onDestroy(){
+        saveAutoLoginDelay();
+        autoLoginIoExecutor.shutdownNow();
+        super.onDestroy();
+    }
 
     static class Account{final String category;final String name;final DocumentFile file;Account(String category,String name,DocumentFile file){this.category=category;this.name=name;this.file=file;}}
 }

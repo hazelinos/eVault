@@ -1,0 +1,26 @@
+[
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_btn_primary.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/btn_primary.xml"
+    },
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_card_bg.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/card_bg.xml"
+    },
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_btn_danger.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/btn_danger.xml"
+    },
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_input_bg.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/input_bg.xml"
+    },
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_evault_icon.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/evault_icon.xml"
+    },
+    {
+        "merged": "id.feezet.efauth.app-debug-25:/drawable_btn_secondary.xml.flat",
+        "source": "id.feezet.efauth.app-main-27:/drawable/btn_secondary.xml"
+    }
+]
