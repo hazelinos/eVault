@@ -96,29 +96,45 @@ final class DiscordWebhook {
     }
 
     private static String request(String url, String method, String payload, boolean rawJson) {
-        HttpURLConnection connection = null;
-        try {
-            URL target = new URL(url);
-            connection = (HttpURLConnection) target.openConnection();
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(8000);
-            connection.setReadTimeout(8000);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            String body = rawJson
-                    ? payload
-                    : "{\"content\":\"" + escapeJson(payload) + "\"}";
-            try (OutputStream out = connection.getOutputStream()) {
-                out.write(body.getBytes(StandardCharsets.UTF_8));
+        String body = rawJson
+                ? payload
+                : "{\"content\":\"" + escapeJson(payload) + "\"}";
+        // One retry on HTTP 429, honoring Discord's Retry-After header.
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                URL target = new URL(url);
+                connection = (HttpURLConnection) target.openConnection();
+                connection.setRequestMethod(method);
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(8000);
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                try (OutputStream out = connection.getOutputStream()) {
+                    out.write(body.getBytes(StandardCharsets.UTF_8));
+                }
+                int code = connection.getResponseCode();
+                if (code == 429 && attempt == 0) {
+                    long retryAfterMs = 1000L;
+                    try {
+                        String header = connection.getHeaderField("Retry-After");
+                        if (header != null) retryAfterMs = Math.min(5000L, (long) (Double.parseDouble(header) * 1000L));
+                    } catch (Exception ignored) {}
+                    try { Thread.sleep(Math.max(250L, retryAfterMs)); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return null;
+                    }
+                    continue;
+                }
+                if (code < 200 || code >= 300) return null;
+                return extractId(readStream(connection.getInputStream()));
+            } catch (Exception ignored) {
+                return null;
+            } finally {
+                if (connection != null) connection.disconnect();
             }
-            int code = connection.getResponseCode();
-            if (code < 200 || code >= 300) return null;
-            return extractId(readStream(connection.getInputStream()));
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (connection != null) connection.disconnect();
         }
+        return null;
     }
 
     private static String readStream(InputStream in) {
@@ -135,9 +151,44 @@ final class DiscordWebhook {
 
     private static String extractId(String json) {
         if (json == null) return null;
-        int key = json.indexOf("\"id\"");
-        if (key < 0) return null;
-        int colon = json.indexOf(':', key);
+        // Only accept the top-level message "id" (JSON depth 1), never a nested
+        // author/embed/field id, so KEY_AL_WEBHOOK_MSG_ID stays correct.
+        int depth = 0;
+        boolean inString = false;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inString) {
+                if (c == '\\') { i++; continue; }
+                if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') {
+                if (depth == 1 && matchesKeyAt(json, i)) {
+                    String id = stringValueAfter(json, i);
+                    if (id != null) return id;
+                }
+                inString = true;
+            } else if (c == '{' || c == '[') {
+                depth++;
+            } else if (c == '}' || c == ']') {
+                depth--;
+            }
+        }
+        return null;
+    }
+
+    /** True if the quote at index i begins the object key "id". */
+    private static boolean matchesKeyAt(String json, int i) {
+        if (i + 4 >= json.length()) return false;
+        if (json.charAt(i + 1) != 'i' || json.charAt(i + 2) != 'd' || json.charAt(i + 3) != '"') return false;
+        int colon = i + 4;
+        while (colon < json.length() && Character.isWhitespace(json.charAt(colon))) colon++;
+        return colon < json.length() && json.charAt(colon) == ':';
+    }
+
+    /** Reads the JSON string value following the key at index i, or null. */
+    private static String stringValueAfter(String json, int i) {
+        int colon = json.indexOf(':', i);
         if (colon < 0) return null;
         int firstQuote = json.indexOf('"', colon + 1);
         if (firstQuote < 0) return null;

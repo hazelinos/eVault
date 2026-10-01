@@ -121,6 +121,8 @@ public class MainActivity extends AppCompatActivity {
     private int autoLoginIndex = 0;
     private int autoLoginSuccessCount = 0;
     private int autoLoginFailedCount = 0;
+    private volatile int autoLoginGeneration = 0;
+    private String sessionLoginDay = null;
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
 
@@ -219,8 +221,10 @@ public class MainActivity extends AppCompatActivity {
 
         // If eVault was closed/restarted while an Auto Login session was still RUNNING/PAUSED/FAILED,
         // offer to resume instead of starting over. Never restart from account 1.
+        // Skip while a live session is mid-flow (mode still set) to avoid a second dialog.
         if (!autoLoginRunning
                 && !autoLoginResumeDialogShown
+                && !MODE_AUTO_LOGIN.equals(getMode())
                 && hasActiveSession()) {
             autoLoginResumeDialogShown = true;
             loadCountersFromSession();
@@ -1354,6 +1358,9 @@ public class MainActivity extends AppCompatActivity {
     // ============ Auto Login progress session (persistent) ============
 
     private void beginSession(int total){
+        autoLoginGeneration++;
+        autoLoginResumeDialogShown = false;
+        sessionLoginDay = loginDayKey();
         autoLoginSuccessCount = 0;
         autoLoginFailedCount = 0;
         String sessionId = String.valueOf(System.currentTimeMillis());
@@ -1592,12 +1599,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         alPauseButton.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
-        alStopButton.setVisibility(AL_STATUS_RUNNING.equals(status) && autoLoginSuccessCount > 0 ? View.VISIBLE : View.GONE);
+        alStopButton.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
         alContinueButton.setVisibility(paused ? View.VISIBLE : View.GONE);
         alExitButton.setVisibility(paused || AL_STATUS_COMPLETED.equals(status) ? View.VISIBLE : View.GONE);
     }
 
     private void exitAutoLogin(){
+        autoLoginResumeDialogShown = false;
+        sessionLoginDay = null;
         prefs.edit()
             .remove(KEY_AL_SESSION_ID).remove(KEY_AL_SESSION_VERSION).remove(KEY_AL_STATUS).remove(KEY_AL_CURRENT_ACCOUNT)
             .remove(KEY_AL_NEXT_ACCOUNT).remove(KEY_AL_LAST_ERROR).remove(KEY_AL_WEBHOOK_MSG_ID)
@@ -1688,6 +1697,8 @@ public class MainActivity extends AppCompatActivity {
         autoLoginAccounts.addAll(rebuilt);
         autoLoginIndex = index;
         autoLoginRunning = true;
+        autoLoginGeneration++;
+        sessionLoginDay = loginDayKey();
         boolean waitingConfirmation = prefs.getBoolean(KEY_AL_WAITING_CONFIRMATION, false);
         // Keep the session's original total: success/failed counters are cumulative and the
         // rebuilt list may be smaller after filtering out verified accounts.
@@ -1873,6 +1884,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Account account=autoLoginAccounts.get(autoLoginIndex);
+        final int generation = autoLoginGeneration;
         prefs.edit().putString(KEY_AUTO_LOGIN_PENDING, accountKey(account)).putInt(KEY_AUTO_LOGIN_INDEX, autoLoginIndex).apply();
         prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_PREPARING).apply();
         persistProgress(AL_STATUS_RUNNING, account.name, nextAccountName(), null);
@@ -1882,9 +1894,11 @@ public class MainActivity extends AppCompatActivity {
         updateWebhookProgress(AL_STATUS_RUNNING);
 
         autoLoginIoExecutor.execute(() -> {
+            // Discard work from a superseded session before it touches the AUTH file.
+            if (generation != autoLoginGeneration) return;
             boolean copied = copyAuth(account);
             autoLoginHandler.post(() -> {
-                if (!autoLoginRunning) return;
+                if (!autoLoginRunning || generation != autoLoginGeneration) return;
                 if (!copied) {
                     autoLoginFailedCount++;
                     failAutoLogin("COPY AUTH gagal untuk " + account.name);
@@ -2023,25 +2037,32 @@ public class MainActivity extends AppCompatActivity {
         return format.format(loginDayDate);
     }
 
+    /** Login-day used for the current session; frozen at session start to avoid
+     *  a mid-session 09:00 WIB rollover splitting verification records. */
+    private String currentLoginDay(){
+        return sessionLoginDay != null ? sessionLoginDay : loginDayKey();
+    }
+
     private boolean isLoginVerifiedToday(Account account){
-        String key = accountKey(account) + "\u001F" + loginDayKey();
+        String key = accountKey(account) + "\u001F" + currentLoginDay();
         Set<String> verified = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
         return verified != null && verified.contains(key);
     }
 
     private void markLoginVerifiedToday(Account account){
-        String today = loginDayKey();
+        String today = currentLoginDay();
         String key = accountKey(account) + "\u001F" + today;
         Set<String> old = prefs.getStringSet(KEY_LOGIN_VERIFIED, Collections.emptySet());
         HashSet<String> updated = new HashSet<>();
         if(old != null) updated.addAll(old);
 
-        // Keep only records from the current 09:00 WIB -> 08:59 WIB login day.
+        // Drop only records strictly older than the current login day (never drop
+        // today's records, even if the wall clock rolls over mid-session).
         Iterator<String> it = updated.iterator();
         while(it.hasNext()){
             String entry = it.next();
             int split = entry.lastIndexOf("\u001F");
-            if(split < 0 || !entry.substring(split + 1).equals(today)) it.remove();
+            if(split < 0 || entry.substring(split + 1).compareTo(today) < 0) it.remove();
         }
 
         updated.add(key);
@@ -2123,7 +2144,10 @@ public class MainActivity extends AppCompatActivity {
 
     /** Hard reset of auto login state without touching the persisted progress session. */
     private void teardownAutoLogin(){
+        autoLoginGeneration++;
         autoLoginRunning=false;
+        autoLoginResumeDialogShown = false;
+        sessionLoginDay = null;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
         prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).remove(KEY_AUTO_LOGIN_MODE)
