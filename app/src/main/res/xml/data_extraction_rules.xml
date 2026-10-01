@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  eVault keeps SAF tree URIs and the Discord webhook URL in the "paths"
+  SharedPreferences file. A webhook URL is a credential and must never leave
+  the device through cloud backup or device-to-device transfer.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="paths.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="paths.xml" />
+    </device-transfer>
+</data-extraction-rules>
