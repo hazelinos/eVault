@@ -2356,7 +2356,8 @@ public class MainActivity extends AppCompatActivity {
             if(isEfootballPackage(pn,label)&&!pkgs.contains(pn)){pkgs.add(pn);labels.add(label+"\n"+pn);}
         }
         if(pkgs.isEmpty()){
-            updateStatus("Tidak ada package eFootball yang terpasang.");
+            updateStatus("Tidak ada eFootball terdeteksi. Pakai input manual.");
+            showManualPackageDialog();
             return;
         }
         String current=gamePackage();
@@ -2371,18 +2372,48 @@ public class MainActivity extends AppCompatActivity {
                 updateStatus("Game diset: "+picked);
                 d.dismiss();
             })
+            .setNeutralButton("INPUT MANUAL",(d,w)->showManualPackageDialog())
             .setNegativeButton("BATAL",null)
             .show();
     }
 
-    /** Deteksi package eFootball berdasarkan id / label. */
+    /** Isi package secara manual bila clone tidak terdeteksi otomatis. */
+    private void showManualPackageDialog(){
+        final EditText input=new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("mis. epl.idsphone");
+        input.setText(gamePackage());
+        styleInput(input);
+        new AlertDialog.Builder(this)
+            .setTitle("PACKAGE GAME")
+            .setMessage("Masukkan package id game eFootball:")
+            .setView(input)
+            .setNegativeButton("BATAL",null)
+            .setPositiveButton("SIMPAN",(d,w)->{
+                String pkg=input.getText().toString().trim();
+                if(pkg.isEmpty()){updateStatus("Package kosong.");return;}
+                if(getPackageManager().getLaunchIntentForPackage(pkg)==null){
+                    updateStatus("Package \""+pkg+"\" tidak ditemukan / tidak bisa dibuka.");
+                    return;
+                }
+                prefs.edit().putString(KEY_GAME_PACKAGE,pkg).apply();
+                addActivityLog("Game eFootball diset manual: "+pkg);
+                updateStatus("Game diset: "+pkg);
+            })
+            .show();
+    }
+
+    /** Deteksi eFootball: label mengandung "efootball", ATAU package mengandung ciri eFootball. */
     private boolean isEfootballPackage(String pkg,String label){
         String p=pkg==null?"":pkg.toLowerCase();
         String l=label==null?"":label.toLowerCase();
+        // 1) Label yang tampil di HP
+        if(l.contains("efootball")) return true;
+        // 2) Package id (ciri eFootball / Konami / PES)
         if(p.contains("epl.idsphone")) return true;
-        if(p.startsWith("jp.konami")||p.contains("konami")) return true;
-        if(p.contains("efootball")||p.contains("pes20")||p.contains("we2020")) return true;
-        if(l.contains("efootball")||l.contains("pes 20")||l.contains("e football")) return true;
+        if(p.contains("konami")) return true;
+        if(p.contains("efootball")) return true;
+        if(p.contains("pes20")) return true;
         return false;
     }
     private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
