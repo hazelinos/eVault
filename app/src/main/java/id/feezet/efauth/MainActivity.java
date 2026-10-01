@@ -109,7 +109,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String NAMING_LETTERED = "lettered";
     private static final String MODE_NONE = "none";
     private static final String MODE_CREATE = "create";
-    private static final String PACKAGE = "epl.idsphone";
+    private static final String DEFAULT_GAME_PACKAGE = "epl.idsphone";
+    private static final String KEY_GAME_PACKAGE = "game_package";
 
     private SharedPreferences prefs;
     private TextView status;
@@ -374,6 +375,11 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams setupRow2Lp = fullLp();
         setupRow2Lp.topMargin = dp(8);
         setupCard.addView(setupRow2, setupRow2Lp);
+
+        Button gameBtn = secondaryButton("🎮 PILIH GAME", v -> showGamePickerDialog());
+        LinearLayout.LayoutParams gameLp = fullLp();
+        gameLp.topMargin = dp(8);
+        setupCard.addView(gameBtn, gameLp);
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -2312,23 +2318,72 @@ public class MainActivity extends AppCompatActivity {
         tmp.delete();
         return true;
     }
+    /** Package game yang dipakai: pilihan user, atau default eFootball bila belum dipilih. */
+    private String gamePackage(){
+        String p=prefs.getString(KEY_GAME_PACKAGE,null);
+        return (p==null||p.trim().isEmpty())?DEFAULT_GAME_PACKAGE:p;
+    }
+
     private boolean launchGame(){
-        Intent i=getPackageManager().getLaunchIntentForPackage(PACKAGE);
+        String pkg=gamePackage();
+        Intent i=getPackageManager().getLaunchIntentForPackage(pkg);
         if(i==null){
-            addActivityLog("Gagal membuka eFootball: package " + PACKAGE + " tidak ditemukan.");
-            updateStatus("Package "+PACKAGE+" tidak ditemukan.");
+            addActivityLog("Gagal membuka eFootball: package " + pkg + " tidak ditemukan.");
+            updateStatus("Package "+pkg+" tidak ditemukan.");
             return false;
         }
         try {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
-            addActivityLog("Berhasil membuka eFootball.");
+            addActivityLog("Berhasil membuka eFootball ("+pkg+").");
             return true;
         } catch(Exception e) {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
             updateStatus("Gagal membuka eFootball.");
             return false;
         }
+    }
+
+    /** Hanya daftar package eFootball (bukan semua app). */
+    private void showGamePickerDialog(){
+        Intent main=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<android.content.pm.ResolveInfo> apps=getPackageManager().queryIntentActivities(main,0);
+        final ArrayList<String> pkgs=new ArrayList<>();
+        final ArrayList<String> labels=new ArrayList<>();
+        for(android.content.pm.ResolveInfo ri:apps){
+            String pn=ri.activityInfo.packageName;
+            String label=String.valueOf(ri.loadLabel(getPackageManager()));
+            if(isEfootballPackage(pn,label)&&!pkgs.contains(pn)){pkgs.add(pn);labels.add(label+"\n"+pn);}
+        }
+        if(pkgs.isEmpty()){
+            updateStatus("Tidak ada package eFootball yang terpasang.");
+            return;
+        }
+        String current=gamePackage();
+        int checked=-1;
+        for(int i=0;i<pkgs.size();i++) if(pkgs.get(i).equals(current)) checked=i;
+        new AlertDialog.Builder(this)
+            .setTitle("PILIH GAME eFootball")
+            .setSingleChoiceItems(labels.toArray(new String[0]),checked,(d,which)->{
+                String picked=pkgs.get(which);
+                prefs.edit().putString(KEY_GAME_PACKAGE,picked).apply();
+                addActivityLog("Game eFootball dipilih: "+picked);
+                updateStatus("Game diset: "+picked);
+                d.dismiss();
+            })
+            .setNegativeButton("BATAL",null)
+            .show();
+    }
+
+    /** Deteksi package eFootball berdasarkan id / label. */
+    private boolean isEfootballPackage(String pkg,String label){
+        String p=pkg==null?"":pkg.toLowerCase();
+        String l=label==null?"":label.toLowerCase();
+        if(p.contains("epl.idsphone")) return true;
+        if(p.startsWith("jp.konami")||p.contains("konami")) return true;
+        if(p.contains("efootball")||p.contains("pes20")||p.contains("we2020")) return true;
+        if(l.contains("efootball")||l.contains("pes 20")||l.contains("e football")) return true;
+        return false;
     }
     private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
 
