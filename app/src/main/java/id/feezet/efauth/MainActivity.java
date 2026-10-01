@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_CREATE_COUNT = "create_count";
     private static final String KEY_CREATE_CATEGORY = "create_category";
     private static final String KEY_CREATE_NAMING = "create_naming";
+    private static final String KEY_CREATE_BACKUP = "create_auth_backup";
     private static final String KEY_AUTO_LOGIN_DELAY = "KEY_AUTO_LOGIN_DELAY";
     private static final String KEY_ACTIVITY_LOG = "activity_log";
     private static final String KEY_DISCORD_WEBHOOK = "discord_webhook";
@@ -102,6 +103,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String AL_GAME_STOPPED = "BERHENTI";
     private static final String AL_GAME_COMPLETED = "SELESAI";
     private static final int DEFAULT_AUTO_LOGIN_DELAY = 5;
+    private static final int AUTO_MAX_DELAY_SECONDS = 120;
     private static final int MAX_ACTIVITY_LOGS = 300;
     private static final String NAMING_NUMERIC = "numeric";
     private static final String NAMING_LETTERED = "lettered";
@@ -192,6 +194,48 @@ public class MainActivity extends AppCompatActivity {
         }
         buildUi();
         loadAccounts();
+        if (b != null) restoreSelectedAccount(b.getString(STATE_SELECTED_ACCOUNT, null));
+        recoverAbandonedCreateBackup();
+    }
+
+    /** If the app died mid create-account, the target may have no AUTH but a .bak exists.
+     *  Restore it so the user is never left without an installed AUTH. */
+    private void recoverAbandonedCreateBackup(){
+        if (!prefs.contains(KEY_CREATE_BACKUP)) return;
+        DocumentFile target = getTree(KEY_TARGET);
+        if (!validDir(target)) return;
+        DocumentFile auth = target.findFile(AUTH_FILE);
+        boolean authMissing = auth == null || !auth.isFile();
+        if (authMissing) {
+            restoreTargetAuthBackup();
+            addActivityLog("Pemulihan otomatis: AUTH lama dikembalikan setelah proses terputus.");
+        } else {
+            cleanupCreateBackup();
+        }
+    }
+
+    private static final String STATE_SELECTED_ACCOUNT = "selected_account";
+
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        Account sel = selectedAccount;
+        if (sel != null) outState.putString(STATE_SELECTED_ACCOUNT, sel.category + "\u001F" + sel.name);
+    }
+
+    /** Re-selects an account by "category\u001Fname" after a configuration change. */
+    private void restoreSelectedAccount(String key){
+        if(key==null)return;
+        int sep = key.indexOf('\u001F');
+        if(sep < 0) return;
+        String category = key.substring(0, sep);
+        String name = key.substring(sep + 1);
+        for (Account a : accounts) {
+            if (a.category.equals(category) && a.name.equals(name)) {
+                selectedAccount = a;
+                notifySelectedAccount(a);
+                return;
+            }
+        }
     }
 
     private boolean createResumeDialogShown = false;
@@ -413,6 +457,13 @@ public class MainActivity extends AppCompatActivity {
         FrameLayout host = new FrameLayout(this);
         host.setBackgroundColor(color(R.color.bgBase));
         host.addView(this.mainScreen, new FrameLayout.LayoutParams(-1, -1));
+        // Android 15 (targetSdk 35) draws edge-to-edge; keep content clear of system bars.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(host, (v, insets) -> {
+            androidx.core.graphics.Insets bars = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars());
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return insets;
+        });
         this.screenHost = host;
         setContentView(host);
     }
@@ -658,11 +709,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void saveTree(String key, Uri uri) {
+        boolean persisted = false;
         try {
             getContentResolver().takePersistableUriPermission(uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        } catch (Exception ignored) {}
+            persisted = true;
+        } catch (Exception e) {
+            addActivityLog("Peringatan: izin folder tidak permanen (" + e.getClass().getSimpleName() + ").");
+        }
         prefs.edit().putString(key, uri.toString()).commit();
+        if (!persisted) {
+            updateStatus("Folder tersimpan, tapi provider tidak mendukung akses permanen. " +
+                    "Jika akses hilang setelah restart, pilih folder lain (mis. penyimpanan internal).");
+        }
     }
 
     private DocumentFile getTree(String key) {
@@ -684,7 +743,7 @@ public class MainActivity extends AppCompatActivity {
         accounts.clear();
         DocumentFile lib = getTree(KEY_LIBRARY);
         if (validDir(lib)) {
-            for (DocumentFile category : lib.listFiles()) {
+            for (DocumentFile category : safeList(lib)) {
                 if (category.isDirectory()) collectAccounts(category, nameOf(category));
             }
         }
@@ -853,7 +912,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void collectAccounts(DocumentFile categoryRoot, String categoryName) {
-        for (DocumentFile child : categoryRoot.listFiles()) {
+        for (DocumentFile child : safeList(categoryRoot)) {
             if (!child.isDirectory()) continue;
             DocumentFile auth = child.findFile(AUTH_FILE);
             if (auth != null && auth.isFile()) accounts.add(new Account(categoryName, nameOf(child), auth));
@@ -940,12 +999,9 @@ public class MainActivity extends AppCompatActivity {
 
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String categoryName = input.getText().toString().trim();
-            if (categoryName.isEmpty()) {
-                input.setError("Nama kategori wajib diisi.");
-                return;
-            }
-            if (categoryName.contains("/") || categoryName.contains("\\")) {
-                input.setError("Nama kategori tidak boleh mengandung / atau \\.");
+            String nameError = invalidFileNameReason(categoryName);
+            if (nameError != null) {
+                input.setError(nameError);
                 return;
             }
 
@@ -998,12 +1054,9 @@ public class MainActivity extends AppCompatActivity {
 
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String accountName = input.getText().toString().trim();
-            if (accountName.isEmpty()) {
-                input.setError("Nama wajib diisi.");
-                return;
-            }
-            if (accountName.contains("/") || accountName.contains("\\")) {
-                input.setError("Nama tidak boleh mengandung / atau \\.");
+            String nameError = invalidFileNameReason(accountName);
+            if (nameError != null) {
+                input.setError(nameError);
                 return;
             }
 
@@ -1025,6 +1078,14 @@ public class MainActivity extends AppCompatActivity {
             DocumentFile accountDir = categoryDir.createDirectory(accountName);
             if (!validDir(accountDir)) {
                 input.setError("Gagal membuat penyimpanan. Coba nama lain.");
+                return;
+            }
+
+            // Defensive: if a directory + AUTH somehow already exists (provider race or a
+            // case-insensitive collision the earlier check missed), do not overwrite it.
+            DocumentFile preexisting = accountDir.findFile(AUTH_FILE);
+            if (preexisting != null && preexisting.isFile()) {
+                input.setError("Nama \"" + accountName + "\" sudah berisi AUTH. Gunakan nama lain.");
                 return;
             }
 
@@ -1056,14 +1117,32 @@ public class MainActivity extends AppCompatActivity {
 
     private DocumentFile findChildIgnoreCase(DocumentFile parent, String wantedName) {
         if (!validDir(parent) || wantedName == null) return null;
-        for (DocumentFile child : parent.listFiles()) {
+        for (DocumentFile child : safeList(parent)) {
             String name = child.getName();
             if (name != null && name.equalsIgnoreCase(wantedName)) return child;
         }
         return null;
     }
 
+    /** Returns a human-readable reason a folder/file name cannot be used, or null if it is valid. */
+    private static String invalidFileNameReason(String name) {
+        if (name == null) return "Nama wajib diisi.";
+        String trimmed = name.trim();
+        if (trimmed.isEmpty()) return "Nama wajib diisi.";
+        if (trimmed.equals(".") || trimmed.equals("..")) return "Nama tidak valid.";
+        if (trimmed.length() > 60) return "Nama terlalu panjang (maks 60 karakter).";
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c < 0x20 || c == 0x7f) return "Nama tidak boleh mengandung karakter kontrol.";
+            if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?'
+                    || c == '"' || c == '<' || c == '>' || c == '|')
+                return "Nama tidak boleh mengandung / \\ : * ? \" < > |";
+        }
+        return null;
+    }
+
     private void showInfoDialog(String title, String message) {
+        if (isFinishing() || isDestroyed()) return;
         new AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)
@@ -1123,8 +1202,47 @@ public class MainActivity extends AppCompatActivity {
             String category=categories.get(which); DocumentFile categoryDir=categoryRoot(accountRoot,category);
             if(!validDir(categoryDir)){updateStatus("Gagal membuka kategori: "+category);return;}
             prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();
-            DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete(); prepareCreate(categoryDir,count);
+            backupTargetAuth(target);
+            DocumentFile auth=target.findFile(AUTH_FILE); if(auth!=null&&auth.isFile())auth.delete();
+            prepareCreate(categoryDir,count);
         }).setNegativeButton("BATAL",null).show();
+    }
+
+    /** Before create-account deletes the installed AUTH, keep a backup so a cancel/
+     *  crash cannot leave the target with no AUTH at all. */
+    private void backupTargetAuth(DocumentFile target){
+        if(!validDir(target))return;
+        DocumentFile auth=target.findFile(AUTH_FILE);
+        if(auth==null||!auth.isFile()){prefs.edit().remove(KEY_CREATE_BACKUP).apply();return;}
+        DocumentFile bak=target.findFile(AUTH_FILE+".bak");
+        if(bak!=null)bak.delete();
+        DocumentFile created=target.createFile("application/octet-stream",AUTH_FILE+".bak");
+        if(created==null){prefs.edit().remove(KEY_CREATE_BACKUP).apply();return;}
+        try(InputStream in=getContentResolver().openInputStream(auth.getUri());
+            OutputStream out=getContentResolver().openOutputStream(created.getUri(),"w")){
+            if(in==null||out==null)throw new Exception("stream null");
+            byte[] buf=new byte[8192];int n;
+            while((n=in.read(buf))!=-1)out.write(buf,0,n);
+            out.flush();
+            prefs.edit().putString(KEY_CREATE_BACKUP,created.getUri().toString()).apply();
+        }catch(Exception e){
+            if(created!=null)created.delete();
+            prefs.edit().remove(KEY_CREATE_BACKUP).apply();
+        }
+    }
+
+    /** Restores the AUTH that create-account backed up, if any. Safe to call when none. */
+    private void restoreTargetAuthBackup(){
+        String uri=prefs.getString(KEY_CREATE_BACKUP,null);
+        prefs.edit().remove(KEY_CREATE_BACKUP).apply();
+        if(uri==null)return;
+        DocumentFile target=getTree(KEY_TARGET);
+        if(!validDir(target))return;
+        DocumentFile bak=target.findFile(AUTH_FILE+".bak");
+        if(bak==null||!bak.isFile())return;
+        boolean ok=copyFile(bak,target,AUTH_FILE);
+        bak.delete();
+        addActivityLog(ok?"AUTH lama dipulihkan setelah pembuatan akun dibatalkan.":"Gagal memulihkan AUTH lama.");
     }
 
     private void prepareCreate(DocumentFile root,int count) {
@@ -1155,7 +1273,7 @@ public class MainActivity extends AppCompatActivity {
         // Resume from the actual highest existing account name in the selected category.
         int startSequence = 0;
         if (root != null) {
-            for (DocumentFile child : root.listFiles()) {
+            for (DocumentFile child : safeList(root)) {
                 if (!child.isDirectory()) continue;
                 int seq = nameToSequence(nameOfStatic(child));
                 if (seq > startSequence) startSequence = seq;
@@ -1168,10 +1286,27 @@ public class MainActivity extends AppCompatActivity {
         while (result.size() < count && guard++ < 1000000) {
             String name = sequenceToName(sequence, naming);
             if (name == null) break;
-            if (root == null || root.findFile(name) == null) result.add(name);
+            if (root == null || !childExistsIgnoreCase(root, name)) result.add(name);
             sequence++;
         }
         return result;
+    }
+
+    /** Case-insensitive child lookup that also survives providers where findFile is exact-match. */
+    private static boolean childExistsIgnoreCase(DocumentFile parent, String wanted) {
+        if (parent == null || wanted == null) return false;
+        try {
+            if (parent.findFile(wanted) != null) return true;
+            DocumentFile[] children = parent.listFiles();
+            if (children != null) {
+                for (DocumentFile child : children) {
+                    String n = child.getName();
+                    if (n != null && n.equalsIgnoreCase(wanted)) return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private static String nameOfStatic(DocumentFile d) {
@@ -1190,8 +1325,11 @@ public class MainActivity extends AppCompatActivity {
         }
         if (numeric) {
             try {
-                int value = Integer.parseInt(name);
-                return value > 0 ? value : 0;
+                // Clamp: a manually-created folder like "99999999" must not push the
+                // auto-numbering into an absurd, slow range.
+                long value = Long.parseLong(name);
+                if (value <= 0) return 0;
+                return (int) Math.min(value, 1000000L);
             } catch (Exception ignored) {
                 return 0;
             }
@@ -1235,7 +1373,7 @@ public class MainActivity extends AppCompatActivity {
     private void showCreateExitDialog() {
         List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));int index=prefs.getInt(KEY_CREATE_INDEX,0);if(index>=names.size()){finishCreate();return;}String current=names.get(index);
         new AlertDialog.Builder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
-                .setNegativeButton("BATAL",(d,w)->{clearWorkflow();updateStatus("Pembuatan akun baru dihentikan.");})
+                .setNegativeButton("BATAL",(d,w)->{clearWorkflow();restoreTargetAuthBackup();updateStatus("Pembuatan akun baru dihentikan. AUTH lama dipulihkan bila ada.");})
                 .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
                 .setPositiveButton("SIMPAN",(d,w)->{
                     DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
@@ -1244,7 +1382,14 @@ public class MainActivity extends AppCompatActivity {
                 }).show();
     }
 
-    private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
+    private void finishCreate(){int total=split(prefs.getString(KEY_CREATE_NAMES,"")).size();cleanupCreateBackup();clearWorkflow();loadAccounts();updateStatus("✓ Pembuatan akun selesai. Total: "+total);}
+
+    /** Removes the create-account AUTH backup once the workflow finished successfully. */
+    private void cleanupCreateBackup(){
+        prefs.edit().remove(KEY_CREATE_BACKUP).apply();
+        DocumentFile target=getTree(KEY_TARGET);
+        if(validDir(target)){DocumentFile bak=target.findFile(AUTH_FILE+".bak");if(bak!=null)bak.delete();}
+    }
 
     private void saveAutoLoginDelay() {
         if (autoLoginDelayEdit == null) return;
@@ -1260,23 +1405,31 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private final Object activityLogLock = new Object();
+
     private void addActivityLog(String message) {
         if (prefs == null) return;
-        String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+        String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
         String entry = "[" + timestamp + "] " + message;
-        String old = prefs.getString(KEY_ACTIVITY_LOG, "");
-        ArrayList<String> lines = new ArrayList<>();
-        if (old != null && !old.isEmpty()) {
-            lines.addAll(Arrays.asList(old.split("\\n", -1)));
+        // Serialize the read-modify-write: copyAuth logs from the IO thread while the
+        // main thread can log too, and unsynchronized writers would drop entries.
+        synchronized (activityLogLock) {
+            String old = prefs.getString(KEY_ACTIVITY_LOG, "");
+            ArrayList<String> lines = new ArrayList<>();
+            if (old != null && !old.isEmpty()) {
+                for (String line : old.split("\n")) {
+                    if (!line.isEmpty()) lines.add(line);
+                }
+            }
+            lines.add(entry);
+            int from = Math.max(0, lines.size() - MAX_ACTIVITY_LOGS);
+            StringBuilder kept = new StringBuilder();
+            for (int i = from; i < lines.size(); i++) {
+                if (kept.length() > 0) kept.append("\n");
+                kept.append(lines.get(i));
+            }
+            prefs.edit().putString(KEY_ACTIVITY_LOG, kept.toString()).apply();
         }
-        lines.add(entry);
-        int from = Math.max(0, lines.size() - MAX_ACTIVITY_LOGS);
-        StringBuilder kept = new StringBuilder();
-        for (int i = from; i < lines.size(); i++) {
-            if (kept.length() > 0) kept.append("\n");
-            kept.append(lines.get(i));
-        }
-        prefs.edit().putString(KEY_ACTIVITY_LOG, kept.toString()).apply();
     }
 
     private void clearActivityLogs() {
@@ -1388,9 +1541,13 @@ public class MainActivity extends AppCompatActivity {
         // block or fail the login process; the message id stays null and edits are skipped.
         String url = currentWebhookUrl();
         if (!url.isEmpty()) {
+            final int generation = autoLoginGeneration;
             renderWebhookEmbedData(AL_STATUS_RUNNING, null, data -> {
                 DiscordWebhook.sendEmbedTransaction(url, data.title, data.description, data.color, data.fieldsJson, id -> {
-                    if (id != null) prefs.edit().putString(KEY_AL_WEBHOOK_MSG_ID, id).apply();
+                    // Ignore a late callback from a session that has already been replaced,
+                    // and never store a "gone" sentinel as a message id.
+                    if (id != null && !DiscordWebhook.GONE.equals(id) && generation == autoLoginGeneration)
+                        prefs.edit().putString(KEY_AL_WEBHOOK_MSG_ID, id).apply();
                 });
             });
         }
@@ -1431,9 +1588,12 @@ public class MainActivity extends AppCompatActivity {
         if (url.isEmpty()) return;
         String messageId = prefs.getString(KEY_AL_WEBHOOK_MSG_ID, null);
         if (messageId == null || messageId.isEmpty()) return;
-        // Webhook is monitoring-only: ignore/failure silently, never spam retries.
+        // Webhook is monitoring-only: failures are ignored, never retried in a loop.
         renderWebhookEmbedData(status, null, data ->
-            DiscordWebhook.editEmbed(url, messageId, data.title, data.description, data.color, data.fieldsJson, null)
+            DiscordWebhook.editEmbed(url, messageId, data.title, data.description, data.color, data.fieldsJson, result -> {
+                // The message was deleted: drop the id so nothing edits a dead message.
+                if (DiscordWebhook.GONE.equals(result)) prefs.edit().remove(KEY_AL_WEBHOOK_MSG_ID).apply();
+            })
         );
     }
 
@@ -1781,7 +1941,7 @@ public class MainActivity extends AppCompatActivity {
         List<String> result = new ArrayList<>();
         DocumentFile lib = getTree(KEY_LIBRARY);
         if(!validDir(lib)) return result;
-        for(DocumentFile child : lib.listFiles()){
+        for(DocumentFile child : safeList(lib)){
             if(child.isDirectory()) result.add(nameOf(child));
         }
         Collections.sort(result, String.CASE_INSENSITIVE_ORDER);
@@ -2071,12 +2231,15 @@ public class MainActivity extends AppCompatActivity {
 
     private long getAutoLoginDelayMs(){
         try{
+            if(autoLoginDelayEdit==null) throw new IllegalStateException("no delay view");
             int seconds=Integer.parseInt(autoLoginDelayEdit.getText().toString().trim());
-            seconds=Math.max(2,seconds);
+            seconds=Math.min(AUTO_MAX_DELAY_SECONDS, Math.max(2,seconds));
             prefs.edit().putInt(KEY_AUTO_LOGIN_DELAY, seconds).apply();
             return seconds*1000L;
         }catch(Exception e){
-            return prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)*1000L;
+            int saved=prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY);
+            saved=Math.min(AUTO_MAX_DELAY_SECONDS, Math.max(2, saved));
+            return saved*1000L;
         }
     }
 
@@ -2167,14 +2330,40 @@ public class MainActivity extends AppCompatActivity {
         return ok;
     }
     private boolean copyFile(DocumentFile source, DocumentFile parent, String name){
-        // Write to a temp file first so the installed AUTH stays intact if the copy fails.
+        // Write the new content to a temp file first so the installed AUTH stays intact
+        // if the copy fails. Only replace the real file once the new copy is complete.
         String tmpName = name + ".tmp";
         DocumentFile stale = parent.findFile(tmpName);
         if (stale != null) stale.delete();
         DocumentFile tmp = parent.createFile("application/octet-stream", tmpName);
         if (tmp == null) return false;
+
+        int bytes = 0;
         try (InputStream in = getContentResolver().openInputStream(source.getUri());
              OutputStream out = getContentResolver().openOutputStream(tmp.getUri(), "w")) {
+            if (in == null || out == null) throw new Exception("stream null");
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) { out.write(buf, 0, n); bytes += n; }
+            out.flush();
+        } catch (Exception e) {
+            tmp.delete();
+            return false;
+        }
+        if (bytes <= 0) { tmp.delete(); return false; }
+
+        // Try an atomic rename first.
+        DocumentFile old = parent.findFile(name);
+        if (old == null) {
+            if (tmp.renameTo(name)) return true;
+            tmp.delete();
+            return false;
+        }
+        // Replace in place by truncating the existing document. This is safer than
+        // delete-then-rename because many SAF providers do not support renameTo, and a
+        // failed rename after a delete would leave the target with no AUTH at all.
+        try (InputStream in = getContentResolver().openInputStream(tmp.getUri());
+             OutputStream out = getContentResolver().openOutputStream(old.getUri(), "wt")) {
             if (in == null || out == null) throw new Exception("stream null");
             byte[] buf = new byte[8192];
             int n;
@@ -2184,15 +2373,7 @@ public class MainActivity extends AppCompatActivity {
             tmp.delete();
             return false;
         }
-        DocumentFile old = parent.findFile(name);
-        if (old != null && !old.delete()) {
-            tmp.delete();
-            return false;
-        }
-        if (!tmp.renameTo(name)) {
-            tmp.delete();
-            return false;
-        }
+        tmp.delete();
         return true;
     }
     private boolean launchGame(){
@@ -2214,6 +2395,19 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
+
+    /** Safe directory listing: never returns null and swallows provider errors
+     *  (e.g. a revoked/expired SAF permission) so the UI cannot crash. */
+    private DocumentFile[] safeList(DocumentFile dir){
+        if(dir==null||!dir.isDirectory())return new DocumentFile[0];
+        try{
+            DocumentFile[] children=dir.listFiles();
+            return children==null?new DocumentFile[0]:children;
+        }catch(Exception e){
+            addActivityLog("Gagal membaca folder: "+(e.getClass().getSimpleName()));
+            return new DocumentFile[0];
+        }
+    }
     private String getMode(){return prefs.getString(KEY_MODE,MODE_NONE);}
     private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
@@ -2225,6 +2419,11 @@ public class MainActivity extends AppCompatActivity {
         // and must not run against a shut-down executor after rotation/destroy.
         autoLoginHandler.removeCallbacksAndMessages(null);
         autoLoginIoExecutor.shutdownNow();
+        // Release view references so a detached hierarchy is not retained.
+        status = null;
+        accountsText = null;
+        accountSpinner = null;
+        autoLoginDelayEdit = null;
         super.onDestroy();
     }
 

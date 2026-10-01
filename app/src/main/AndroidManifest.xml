@@ -6,7 +6,9 @@
         android:label="eVault"
         android:icon="@drawable/evault_icon"
         android:roundIcon="@drawable/evault_icon"
-        android:allowBackup="true">
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true">

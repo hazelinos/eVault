@@ -7,11 +7,20 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 
 final class DiscordWebhook {
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    // Bounded single-thread executor: if Discord is slow/unreachable, keep only the
+    // most recent pending sends instead of queueing unbounded work.
+    private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(
+            1, 1, 30, java.util.concurrent.TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(8),
+            r -> { Thread t = new Thread(r, "discord-webhook"); t.setDaemon(true); return t; },
+            new ThreadPoolExecutor.DiscardOldestPolicy());
+
+    /** Returned by request() when the target message no longer exists (HTTP 404/410). */
+    static final String GONE = "\u0000gone";
 
     private DiscordWebhook() {}
 
@@ -21,9 +30,37 @@ final class DiscordWebhook {
     }
 
     static boolean isValidUrl(String value) {
-        return value != null && (
-                value.startsWith("https://discord.com/api/webhooks/")
-                || value.startsWith("https://discordapp.com/api/webhooks/"));
+        if (value == null) return false;
+        // Reject whitespace / control characters and query/fragment injection.
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c <= 0x20 || c == 0x7f || c == '?' || c == '#' || c == '\\') return false;
+        }
+        String prefix;
+        if (value.startsWith("https://discord.com/api/webhooks/")
+                || value.startsWith("https://discordapp.com/api/webhooks/")) {
+            prefix = value.startsWith("https://discord.com/")
+                    ? "https://discord.com/api/webhooks/"
+                    : "https://discordapp.com/api/webhooks/";
+        } else {
+            return false;
+        }
+        // Require https://host/api/webhooks/<numeric-id>/<token> with no extra path segments.
+        String rest = value.substring(prefix.length());
+        int slash = rest.indexOf('/');
+        if (slash <= 0 || slash == rest.length() - 1) return false;
+        String id = rest.substring(0, slash);
+        String token = rest.substring(slash + 1);
+        if (token.indexOf('/') >= 0) return false;
+        for (int i = 0; i < id.length(); i++) if (!Character.isDigit(id.charAt(i))) return false;
+        // Token is a base64-url-ish string; reject obviously invalid characters.
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            boolean ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+            if (!ok) return false;
+        }
+        return true;
     }
 
     /** Fire-and-forget plain message. Kept for backward compatibility. */
@@ -126,6 +163,7 @@ final class DiscordWebhook {
                     }
                     continue;
                 }
+                if (code == 404 || code == 410) return GONE;
                 if (code < 200 || code >= 300) return null;
                 return extractId(readStream(connection.getInputStream()));
             } catch (Exception ignored) {
@@ -151,50 +189,15 @@ final class DiscordWebhook {
 
     private static String extractId(String json) {
         if (json == null) return null;
-        // Only accept the top-level message "id" (JSON depth 1), never a nested
-        // author/embed/field id, so KEY_AL_WEBHOOK_MSG_ID stays correct.
-        int depth = 0;
-        boolean inString = false;
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (inString) {
-                if (c == '\\') { i++; continue; }
-                if (c == '"') inString = false;
-                continue;
-            }
-            if (c == '"') {
-                if (depth == 1 && matchesKeyAt(json, i)) {
-                    String id = stringValueAfter(json, i);
-                    if (id != null) return id;
-                }
-                inString = true;
-            } else if (c == '{' || c == '[') {
-                depth++;
-            } else if (c == '}' || c == ']') {
-                depth--;
-            }
+        // Discord returns a message object for ?wait=true; read the top-level "id"
+        // with a real JSON parser so nested author/embed ids can never be picked up.
+        try {
+            org.json.JSONObject obj = new org.json.JSONObject(json);
+            String id = obj.optString("id", null);
+            if (id != null && !id.isEmpty()) return id;
+        } catch (Exception ignored) {
         }
         return null;
-    }
-
-    /** True if the quote at index i begins the object key "id". */
-    private static boolean matchesKeyAt(String json, int i) {
-        if (i + 4 >= json.length()) return false;
-        if (json.charAt(i + 1) != 'i' || json.charAt(i + 2) != 'd' || json.charAt(i + 3) != '"') return false;
-        int colon = i + 4;
-        while (colon < json.length() && Character.isWhitespace(json.charAt(colon))) colon++;
-        return colon < json.length() && json.charAt(colon) == ':';
-    }
-
-    /** Reads the JSON string value following the key at index i, or null. */
-    private static String stringValueAfter(String json, int i) {
-        int colon = json.indexOf(':', i);
-        if (colon < 0) return null;
-        int firstQuote = json.indexOf('"', colon + 1);
-        if (firstQuote < 0) return null;
-        int secondQuote = json.indexOf('"', firstQuote + 1);
-        if (secondQuote < 0) return null;
-        return json.substring(firstQuote + 1, secondQuote);
     }
 
     /** JSON string escaper shared with MainActivity's embed field builder. */
