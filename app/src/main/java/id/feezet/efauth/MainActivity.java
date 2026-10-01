@@ -1802,7 +1802,6 @@ public class MainActivity extends AppCompatActivity {
      */
     private void resumeAutoLogin(){
         String category = prefs.getString(KEY_AUTO_LOGIN_CATEGORY, null);
-        String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
         int savedIndex = prefs.getInt(KEY_AUTO_LOGIN_INDEX, 0);
 
         if(accounts.isEmpty()) loadAccounts();
@@ -1811,14 +1810,7 @@ public class MainActivity extends AppCompatActivity {
         // savedIndex points into the original (unfiltered) session list; remap it to the
         // rebuilt list so already-verified accounts don't shift the resume position.
         int resumePos = savedIndex;
-        if("single".equals(mode)){
-            String pendingKey = prefs.getString(KEY_AUTO_LOGIN_PENDING, null);
-            for(Account a : accounts){
-                if(pendingKey != null && accountKey(a).equals(pendingKey)) rebuilt.add(a);
-            }
-            savedIndex = 0;
-            resumePos = 0;
-        } else if(category != null){
+        if(category != null){
             List<String> savedKeys = split(prefs.getString(KEY_AL_ACCOUNTS, ""));
             resumePos = 0;
             for (int i = 0; i < savedKeys.size(); i++) {
@@ -1893,12 +1885,11 @@ public class MainActivity extends AppCompatActivity {
             .setTitle("AUTO LOGIN")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
-                "LOGIN YANG BELUM LOGIN HARI INI",
-                "LOGIN SATU AKUN"
+                "LOGIN YANG BELUM LOGIN HARI INI"
             }, (d, which) -> {
-                String mode = which == 0 ? "all" : which == 1 ? "unverified" : "single";
+                String mode = which == 0 ? "all" : "unverified";
                 prefs.edit().putString(KEY_AUTO_LOGIN_MODE, mode).apply();
-                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : which == 1 ? "BELUM LOGIN HARI INI" : "SATU AKUN"));
+                addActivityLog("AUTO LOGIN mode: " + (which == 0 ? "SEMUA AKUN" : "BELUM LOGIN HARI INI"));
                 showCategoryPickerDialog(categories);
             })
             .setNegativeButton("BATAL", null)
@@ -1951,12 +1942,6 @@ public class MainActivity extends AppCompatActivity {
     private void startAutoLoginForCategory(String category){
         addActivityLog("Kategori AUTO LOGIN dipilih: " + category);
 
-        String mode = prefs.getString(KEY_AUTO_LOGIN_MODE, "all");
-        if ("single".equals(mode)) {
-            showAccountPickerDialog(category);
-            return;
-        }
-
         clearWorkflow();
         autoLoginAccounts.clear();
         for(Account a : accounts){
@@ -1983,55 +1968,6 @@ public class MainActivity extends AppCompatActivity {
             .putInt(KEY_AUTO_LOGIN_INDEX, 0)
             .apply();
         beginSession(autoLoginAccounts.size());
-        showAutoLoginScreen();
-        runNextAutoLogin();
-    }
-
-    private void showAccountPickerDialog(final String category){
-        ArrayList<Account> categoryAccounts = new ArrayList<>();
-        for (Account a : accounts) {
-            if (a.category.equals(category)) categoryAccounts.add(a);
-        }
-
-        Collections.sort(categoryAccounts, ACCOUNT_NAME_ORDER);
-
-        if (categoryAccounts.isEmpty()) {
-            updateStatus("Kategori " + category + " tidak punya akun.");
-            return;
-        }
-
-        String[] labels = new String[categoryAccounts.size()];
-        for (int i = 0; i < categoryAccounts.size(); i++) {
-            Account a = categoryAccounts.get(i);
-            labels[i] = a.name + (isLoginVerifiedToday(a) ? "  ✓ sudah login hari ini" : "");
-        }
-
-        new AlertDialog.Builder(this)
-            .setTitle("PILIH AKUN")
-            .setItems(labels, (d, which) -> startAutoLoginForSingleAccount(categoryAccounts.get(which)))
-            .setNegativeButton("BATAL", null)
-            .show();
-    }
-
-    private void startAutoLoginForSingleAccount(Account account){
-        if (isLoginVerifiedToday(account)) {
-            updateStatus("✓ " + account.name + " sudah login hari ini. Tidak perlu diulang.");
-            addActivityLog("AUTO LOGIN dilewati: " + account.category + " / " + account.name + " sudah login hari ini.");
-            return;
-        }
-        clearWorkflow();
-        autoLoginAccounts.clear();
-        autoLoginAccounts.add(account);
-        autoLoginRunning = true;
-        autoLoginIndex = 0;
-        prefs.edit()
-            .putString(KEY_AUTO_LOGIN_MODE, "single")
-            .putString(KEY_AUTO_LOGIN_CATEGORY, account.category)
-            .putInt(KEY_AUTO_LOGIN_INDEX, 0)
-            .apply();
-
-        addActivityLog("AUTO LOGIN akun dipilih: " + account.category + " / " + account.name);
-        beginSession(1);
         showAutoLoginScreen();
         runNextAutoLogin();
     }
