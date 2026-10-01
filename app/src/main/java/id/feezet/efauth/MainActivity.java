@@ -2397,14 +2397,13 @@ public class MainActivity extends AppCompatActivity {
     private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
 
     /** Safe directory listing: never returns null and swallows provider errors
-     *  (e.g. a revoked/expired SAF permission) so the UI cannot crash. */
-    private DocumentFile[] safeList(DocumentFile dir){
+     *  (e.g. a revoked/expired SAF permission) so callers cannot crash. */
+    private static DocumentFile[] safeList(DocumentFile dir){
         if(dir==null||!dir.isDirectory())return new DocumentFile[0];
         try{
             DocumentFile[] children=dir.listFiles();
             return children==null?new DocumentFile[0]:children;
         }catch(Exception e){
-            addActivityLog("Gagal membaca folder: "+(e.getClass().getSimpleName()));
             return new DocumentFile[0];
         }
     }
@@ -2421,9 +2420,10 @@ public class MainActivity extends AppCompatActivity {
         autoLoginIoExecutor.shutdownNow();
         // Release view references so a detached hierarchy is not retained.
         status = null;
-        accountsText = null;
-        accountSpinner = null;
         autoLoginDelayEdit = null;
+        mainScreen = null;
+        autoLoginScreen = null;
+        screenHost = null;
         super.onDestroy();
     }
 
