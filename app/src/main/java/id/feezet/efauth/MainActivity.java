@@ -120,6 +120,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean workflowLaunchPending = false;
     private final Handler autoLoginHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService autoLoginIoExecutor = Executors.newSingleThreadExecutor();
+    /** Serializes user-triggered storage work (Switch/Save/Create) off the UI thread. */
+    private final ExecutorService uiIoExecutor = Executors.newSingleThreadExecutor();
     private boolean autoLoginRunning = false;
     private int autoLoginIndex = 0;
     private int autoLoginSuccessCount = 0;
@@ -266,10 +268,11 @@ public class MainActivity extends AppCompatActivity {
 
         // If eVault was closed/restarted while an Auto Login session was still RUNNING/PAUSED/FAILED,
         // offer to resume instead of starting over. Never restart from account 1.
-        // Skip while a live session is mid-flow (mode still set) to avoid a second dialog.
+        // A live session is already excluded by !autoLoginRunning, so the persisted workflow mode
+        // must NOT be used as a guard here: it can still be MODE_AUTO_LOGIN after a process death
+        // (it is set when the game is launched) and the resume dialog would then be skipped forever.
         if (!autoLoginRunning
                 && !autoLoginResumeDialogShown
-                && !MODE_AUTO_LOGIN.equals(getMode())
                 && hasActiveSession()) {
             autoLoginResumeDialogShown = true;
             loadCountersFromSession();
@@ -732,7 +735,13 @@ public class MainActivity extends AppCompatActivity {
 
     private DocumentFile getTree(String key) {
         String s = prefs.getString(key, null);
-        return s == null ? null : DocumentFile.fromTreeUri(this, Uri.parse(s));
+        if (s == null) return null;
+        try {
+            return DocumentFile.fromTreeUri(this, Uri.parse(s));
+        } catch (Exception e) {
+            // Malformed / no-longer-grantable persisted URI: behave as if it was never set.
+            return null;
+        }
     }
 
     /** Shared account ordering: numeric name prefix first, then name alphabetically. */
@@ -758,6 +767,9 @@ public class MainActivity extends AppCompatActivity {
             if (categoryCompare != 0) return categoryCompare;
             return ACCOUNT_NAME_ORDER.compare(a, b);
         });
+        // The list was rebuilt with fresh Account objects; re-point the selection so the
+        // selected-account marker and Switch Account keep working after a reload.
+        resolveSelectedAccount();
     }
 
     private void showAccountListDialog() {
@@ -897,15 +909,10 @@ public class MainActivity extends AppCompatActivity {
         });
 
         dialog.show();
-        dialog.getWindow().setLayout(
-                (int) (getResources().getDisplayMetrics().widthPixels * 0.92f),
-                dp(620)
-        );
+        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.92f);
+        int maxHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.85f);
+        dialog.getWindow().setLayout(width, Math.min(dp(620), maxHeight));
         dialog.getWindow().getDecorView().setTag(dialog);
-    }
-
-    private Account selectedAccount() {
-        return selectedAccount;
     }
 
     private void notifySelectedAccount(Account account) {
@@ -939,14 +946,31 @@ public class MainActivity extends AppCompatActivity {
     private void switchSelected() {
         teardownAutoLogin(); clearWorkflow();
         if (accounts.isEmpty()) { updateStatus("Library kosong / belum dipilih."); return; }
-        Account selected = selectedAccount();
-        if (selected != null && accounts.contains(selected)) {
-            if (copyAuth(selected)) {
+        Account selected = resolveSelectedAccount();
+        if (selected == null) { updateStatus("Pilih akun terlebih dahulu."); return; }
+        updateStatus("Mengganti AUTH: " + selected.category + " / " + selected.name + "...");
+        runOnIo(() -> copyAuth(selected), ok -> {
+            if (Boolean.TRUE.equals(ok)) {
                 updateStatus("✓ AUTH diganti: " + selected.category + " / " + selected.name);
+            } else {
+                updateStatus("Gagal mengganti AUTH. Periksa folder target.");
             }
-        } else {
-            updateStatus("Pilih akun terlebih dahulu.");
+        });
+    }
+
+    /** Re-resolves the currently selected account against the live account list.
+     *  loadAccounts() rebuilds Account objects, so reference equality is not reliable. */
+    private Account resolveSelectedAccount() {
+        Account sel = selectedAccount;
+        if (sel == null) return null;
+        String key = accountKey(sel);
+        for (Account a : accounts) {
+            if (accountKey(a).equals(key)) {
+                selectedAccount = a;
+                return a;
+            }
         }
+        return null;
     }
 
     private void showSaveAuthDialog() {
@@ -1067,7 +1091,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             // Create the category only now that the user confirmed the save, so cancelling
-            // the dialog doesn't leave an empty category folder behind.
+            // the dialog doesn't leave an empty category folder behind. Folder creation and the
+            // AUTH copy are blocking SAF calls, so they run on the IO executor.
             DocumentFile categoryDir = categoryRoot(library, categoryName);
             if (!validDir(categoryDir)) {
                 input.setError("Gagal membuka kategori: " + categoryName);
@@ -1081,41 +1106,39 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            DocumentFile accountDir = categoryDir.createDirectory(accountName);
-            if (!validDir(accountDir)) {
-                input.setError("Gagal membuat penyimpanan. Coba nama lain.");
-                return;
-            }
-
-            // Defensive: if a directory + AUTH somehow already exists (provider race or a
-            // case-insensitive collision the earlier check missed), do not overwrite it.
-            DocumentFile preexisting = accountDir.findFile(AUTH_FILE);
-            if (preexisting != null && preexisting.isFile()) {
-                input.setError("Nama \"" + accountName + "\" sudah berisi AUTH. Gunakan nama lain.");
-                return;
-            }
-
             DocumentFile target = getTree(KEY_TARGET);
-            DocumentFile installedAuth = validDir(target) ? target.findFile(AUTH_FILE) : null;
-            if (installedAuth == null || !installedAuth.isFile()) {
-                accountDir.delete();
+            runOnIo(() -> {
+                DocumentFile accountDir = categoryDir.createDirectory(accountName);
+                if (!validDir(accountDir)) return "Gagal membuat penyimpanan. Coba nama lain.";
+
+                // Defensive: if a directory + AUTH somehow already exists (provider race or a
+                // case-insensitive collision the earlier check missed), do not overwrite it.
+                DocumentFile preexisting = accountDir.findFile(AUTH_FILE);
+                if (preexisting != null && preexisting.isFile()) {
+                    return "Nama \"" + accountName + "\" sudah berisi AUTH. Gunakan nama lain.";
+                }
+
+                DocumentFile installedAuth = validDir(target) ? target.findFile(AUTH_FILE) : null;
+                if (installedAuth == null || !installedAuth.isFile()) {
+                    accountDir.delete();
+                    return "AUTH yang terpasang sudah tidak ditemukan di target eFootball.";
+                }
+
+                if (!copyFile(installedAuth, accountDir, AUTH_FILE)) {
+                    accountDir.delete();
+                    return "Gagal menyimpan AUTH. Periksa izin folder.";
+                }
+                return null; // success
+            }, error -> {
+                if (error != null) {
+                    input.setError(error);
+                    return;
+                }
+                addActivityLog("SIMPAN AUTH berhasil: " + categoryName + " / " + accountName);
+                updateStatus("✓ AUTH tersimpan: " + categoryName + " / " + accountName);
                 dialog.dismiss();
-                showInfoDialog("SIMPAN AUTH", "AUTH yang terpasang sudah tidak ditemukan di target eFootball.");
-                updateStatus("Tidak ada AUTH terpasang di target eFootball.");
-                return;
-            }
-
-            boolean saved = copyFile(installedAuth, accountDir, AUTH_FILE);
-            if (!saved) {
-                accountDir.delete();
-                input.setError("Gagal menyimpan AUTH. Periksa izin folder.");
-                return;
-            }
-
-            addActivityLog("SIMPAN AUTH berhasil: " + categoryName + " / " + accountName);
-            updateStatus("✓ AUTH tersimpan: " + categoryName + " / " + accountName);
-            dialog.dismiss();
-            loadAccounts();
+                loadAccounts();
+            });
         }));
 
         dialog.show();
@@ -1383,8 +1406,24 @@ public class MainActivity extends AppCompatActivity {
                 .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
                 .setPositiveButton("SIMPAN",(d,w)->{
                     DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
-                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}                    DocumentFile folder=root.findFile(current);if(folder==null)folder=root.createDirectory(current);if(folder==null){updateStatus("Gagal membuat folder: "+current);clearWorkflow();return;}
-                    if(!copyFile(auth,folder,AUTH_FILE)){folder.delete();updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
+                    DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}
+                    updateStatus("Menyimpan AUTH: "+current+"...");
+                    // Folder creation + AUTH copy are blocking SAF calls: keep them off the UI thread.
+                    runOnIo(() -> {
+                        DocumentFile folder=root.findFile(current);
+                        boolean created=false;
+                        if(folder==null){folder=root.createDirectory(current);created=true;}
+                        if(!validDir(folder)) return false;
+                        if(!copyFile(auth,folder,AUTH_FILE)){
+                            // Only remove a folder we just created; never delete a pre-existing one.
+                            if(created) folder.delete();
+                            return false;
+                        }
+                        return true;
+                    }, saved -> {
+                        if(!Boolean.TRUE.equals(saved)){updateStatus("Gagal menyimpan AUTH: "+current);clearWorkflow();return;}
+                        auth.delete();loadAccounts();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();
+                    });
                 }).show();
     }
 
@@ -1773,6 +1812,8 @@ public class MainActivity extends AppCompatActivity {
     private void exitAutoLogin(){
         autoLoginResumeDialogShown = false;
         sessionLoginDay = null;
+        workflowLaunchPending = false;
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
         prefs.edit()
             .remove(KEY_AL_SESSION_ID).remove(KEY_AL_SESSION_VERSION).remove(KEY_AL_STATUS).remove(KEY_AL_CURRENT_ACCOUNT)
             .remove(KEY_AL_NEXT_ACCOUNT).remove(KEY_AL_LAST_ERROR).remove(KEY_AL_WEBHOOK_MSG_ID)
@@ -2028,6 +2069,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void finishAutoLoginCompleted(){
         autoLoginRunning=false;
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
         prefs.edit().remove(KEY_AUTO_LOGIN_PENDING).remove(KEY_AUTO_LOGIN_CATEGORY).remove(KEY_AUTO_LOGIN_INDEX).apply();
         prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_COMPLETED)
             .putBoolean(KEY_AL_WAITING_CONFIRMATION, false).apply();
@@ -2042,6 +2084,7 @@ public class MainActivity extends AppCompatActivity {
         autoLoginRunning=false;
         autoLoginHandler.removeCallbacksAndMessages(null);
         workflowLaunchPending=false;
+        if(MODE_AUTO_LOGIN.equals(getMode())) setMode(MODE_NONE);
         prefs.edit().putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_STOPPED)
             .putBoolean(KEY_AL_WAITING_CONFIRMATION, false).apply();
         persistProgress(AL_STATUS_FAILED, prefs.getString(KEY_AL_CURRENT_ACCOUNT, ""), nextAccountName(), reason);
@@ -2280,43 +2323,56 @@ public class MainActivity extends AppCompatActivity {
         DocumentFile tmp = parent.createFile("application/octet-stream", tmpName);
         if (tmp == null) return false;
 
+        // Some SAF providers return a document whose display name differs from the requested
+        // one (they may append an extension or dedupe). renameTo(name) would then fail and the
+        // user would be stuck with "Gagal menyimpan AUTH". Detect it and write the real file
+        // directly instead of relying on a rename.
+        String actualTmpName = tmp.getName();
+        if (actualTmpName == null || !actualTmpName.equals(tmpName)) {
+            tmp.delete();
+            return replaceOrCreate(source, parent, name);
+        }
+
+        if (!streamInto(source, tmp, "w")) { tmp.delete(); return false; }
+
+        // Try an atomic rename first.
+        DocumentFile old = parent.findFile(name);
+        if (old == null) {
+            if (tmp.renameTo(name)) return true;
+            // renameTo is not supported by this provider: create the final file directly.
+            tmp.delete();
+            return replaceOrCreate(source, parent, name);
+        }
+        // Replace in place by truncating the existing document. This is safer than
+        // delete-then-rename because many SAF providers do not support renameTo, and a
+        // failed rename after a delete would leave the target with no AUTH at all.
+        if (!streamInto(tmp, old, "wt")) { tmp.delete(); return false; }
+        tmp.delete();
+        return true;
+    }
+
+    /** Streams source content into dest using the given open mode. Returns false on any error. */
+    private boolean streamInto(DocumentFile source, DocumentFile dest, String mode){
         int bytes = 0;
         try (InputStream in = getContentResolver().openInputStream(source.getUri());
-             OutputStream out = getContentResolver().openOutputStream(tmp.getUri(), "w")) {
+             OutputStream out = getContentResolver().openOutputStream(dest.getUri(), mode)) {
             if (in == null || out == null) throw new Exception("stream null");
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) != -1) { out.write(buf, 0, n); bytes += n; }
             out.flush();
         } catch (Exception e) {
-            tmp.delete();
             return false;
         }
-        if (bytes <= 0) { tmp.delete(); return false; }
+        return bytes > 0;
+    }
 
-        // Try an atomic rename first.
-        DocumentFile old = parent.findFile(name);
-        if (old == null) {
-            if (tmp.renameTo(name)) return true;
-            tmp.delete();
-            return false;
-        }
-        // Replace in place by truncating the existing document. This is safer than
-        // delete-then-rename because many SAF providers do not support renameTo, and a
-        // failed rename after a delete would leave the target with no AUTH at all.
-        try (InputStream in = getContentResolver().openInputStream(tmp.getUri());
-             OutputStream out = getContentResolver().openOutputStream(old.getUri(), "wt")) {
-            if (in == null || out == null) throw new Exception("stream null");
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-            out.flush();
-        } catch (Exception e) {
-            tmp.delete();
-            return false;
-        }
-        tmp.delete();
-        return true;
+    /** Creates (or reuses) `name` under parent and streams the source into it. */
+    private boolean replaceOrCreate(DocumentFile source, DocumentFile parent, String name){
+        DocumentFile dest = parent.findFile(name);
+        if (dest == null) dest = parent.createFile("application/octet-stream", name);
+        if (dest == null) return false;
+        return streamInto(source, dest, "wt");
     }
     /** Package game yang dipakai: pilihan user, atau default eFootball bila belum dipilih. */
     private String gamePackage(){
@@ -2416,13 +2472,22 @@ public class MainActivity extends AppCompatActivity {
         if(p.contains("pes20")) return true;
         return false;
     }
-    private boolean validDir(DocumentFile d){return d!=null&&d.isDirectory();}
+    /** Null-safe directory check that also swallows provider errors (revoked/expired SAF grant). */
+    private boolean validDir(DocumentFile d){
+        if(d==null) return false;
+        try{
+            return d.isDirectory();
+        }catch(Exception e){
+            return false;
+        }
+    }
 
     /** Safe directory listing: never returns null and swallows provider errors
      *  (e.g. a revoked/expired SAF permission) so callers cannot crash. */
     private static DocumentFile[] safeList(DocumentFile dir){
-        if(dir==null||!dir.isDirectory())return new DocumentFile[0];
+        if(dir==null) return new DocumentFile[0];
         try{
+            if(!dir.isDirectory()) return new DocumentFile[0];
             DocumentFile[] children=dir.listFiles();
             return children==null?new DocumentFile[0]:children;
         }catch(Exception e){
@@ -2434,12 +2499,39 @@ public class MainActivity extends AppCompatActivity {
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
     private void updateStatus(String s){if(status!=null)status.post(() -> status.setText(s));}
+
+    /** Runs blocking storage work off the UI thread, then delivers the result on the UI thread. */
+    private <T> void runOnIo(java.util.concurrent.Callable<T> work, java.util.function.Consumer<T> onDone){
+        try{
+            uiIoExecutor.execute(() -> {
+                T result;
+                try{
+                    result = work.call();
+                }catch(Exception e){
+                    result = null;
+                }
+                final T r = result;
+                autoLoginHandler.post(() -> { if(!isFinishing() && !isDestroyed()) onDone.accept(r); });
+            });
+        }catch(java.util.concurrent.RejectedExecutionException e){
+            // Activity is shutting down; drop the work silently.
+        }
+    }
     @Override protected void onDestroy(){
         saveAutoLoginDelay();
-        // Cancel pending auto-login callbacks: the queued Runnables belong to this instance
-        // and must not run against a shut-down executor after rotation/destroy.
-        autoLoginHandler.removeCallbacksAndMessages(null);
-        autoLoginIoExecutor.shutdownNow();
+        // A configuration change (rotation, etc.) must NOT tear down Auto Login: the activity is
+        // recreated and any in-flight session would silently abort. AndroidManifest declares
+        // configChanges so the activity is normally not recreated at all; this guard covers the
+        // remaining cases (e.g. a change we do not handle) where isChangingConfigurations() is true.
+        if (!isChangingConfigurations()) {
+            // Cancel pending auto-login callbacks: the queued Runnables belong to this instance
+            // and must not run against a shut-down executor after destroy.
+            autoLoginHandler.removeCallbacksAndMessages(null);
+            autoLoginIoExecutor.shutdownNow();
+        }
+        // User-triggered copy work belongs to this instance; dropping it is safe because the
+        // callback checks isFinishing()/isDestroyed() before touching any view.
+        uiIoExecutor.shutdownNow();
         // Release view references so a detached hierarchy is not retained.
         status = null;
         autoLoginDelayEdit = null;
