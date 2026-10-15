@@ -111,6 +111,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String MODE_CREATE = "create";
     private static final String DEFAULT_GAME_PACKAGE = "epl.idsphone";
     private static final String KEY_GAME_PACKAGE = "game_package";
+    // ---- Clone flow (v1.3.8): cloner app + its data root + resolved clone dirs ----
+    private static final String KEY_CLONE_APP = "clone_app";
+    private static final String KEY_CLONE_ROOT = "clone_root";
+    private static final String KEY_CLONE_FILES_DIR = "clone_files_dir";
+    private static final String KEY_CLONE_LABEL = "clone_label";
 
     private SharedPreferences prefs;
     private TextView status;
@@ -185,6 +190,29 @@ public class MainActivity extends AppCompatActivity {
                     Uri uri = r.getData().getData();
                     saveTree(KEY_LIBRARY, uri);
                     startCreateWorkflow(DocumentFile.fromTreeUri(this, uri), prefs.getInt(KEY_CREATE_COUNT, 0));
+                }
+            });
+
+    /** One-time grant of the cloner app's data folder; clone discovery is automatic after this. */
+    private final ActivityResultLauncher<Intent> pickCloneRoot = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), r -> {
+                if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                    saveTree(KEY_CLONE_ROOT, r.getData().getData());
+                    scanAndPickCloneTarget();
+                } else {
+                    updateStatus("Pilih folder data cloner dibatalkan.");
+                }
+            });
+
+    /** Save location for EXPORT TAR (Storage Access Framework create-document). */
+    private final ActivityResultLauncher<Intent> pickExportTar = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), r -> {
+                if (r.getResultCode() == RESULT_OK && r.getData() != null) {
+                    Uri uri = r.getData().getData();
+                    updateStatus("EXPORT TAR berjalan… (assetpacks + SaveData, bisa beberapa menit)");
+                    runOnIo(() -> exportTarToUri(uri), result -> {
+                        if (result != null) updateStatus(result);
+                    });
                 }
             });
 
@@ -383,6 +411,17 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams gameLp = fullLp();
         gameLp.topMargin = dp(8);
         setupCard.addView(gameBtn, gameLp);
+
+        // Clone flow (v1.3.8): PILIH CLONE + EXPORT TAR.
+        LinearLayout setupRow3 = new LinearLayout(this);
+        setupRow3.setOrientation(LinearLayout.HORIZONTAL);
+        Button cloneBtn = secondaryButton("📱 PILIH CLONE", v -> showClonePickerDialog());
+        setupRow3.addView(cloneBtn, weightLp(dp(6), 0));
+        Button exportTarBtn = secondaryButton("📦 EXPORT TAR", v -> exportTar());
+        setupRow3.addView(exportTarBtn, weightLp(dp(6), 1));
+        LinearLayout.LayoutParams setupRow3Lp = fullLp();
+        setupRow3Lp.topMargin = dp(8);
+        setupCard.addView(setupRow3, setupRow3Lp);
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -2457,6 +2496,188 @@ public class MainActivity extends AppCompatActivity {
                 updateStatus("Game diset: "+pkg);
             })
             .show();
+    }
+
+    // ================= Clone flow (v1.3.8) =================
+
+    /** PILIH CLONE: detect cloner apps, then auto-resolve the clone's AUTH target. */
+    private void showClonePickerDialog() {
+        List<CloneResolver.ClonerApp> cloners = CloneResolver.detectCloners(this);
+        if (cloners.isEmpty()) {
+            // No cloner detected by heuristics: let the user pick any installed app.
+            showAllAppsCloneDialog();
+            return;
+        }
+        if (cloners.size() == 1) {
+            onCloneAppPicked(cloners.get(0));
+            return;
+        }
+        ArrayList<String> labels = new ArrayList<>();
+        for (CloneResolver.ClonerApp c : cloners) labels.add(c.label + "\n" + c.packageName);
+        labels.add("APP LAIN…");
+        new AlertDialog.Builder(this)
+            .setTitle("PILIH CLONER")
+            .setItems(labels.toArray(new String[0]), (d, which) -> {
+                if (which == cloners.size()) showAllAppsCloneDialog();
+                else onCloneAppPicked(cloners.get(which));
+            })
+            .setNegativeButton("BATAL", null)
+            .show();
+    }
+
+    private void showAllAppsCloneDialog() {
+        List<CloneResolver.ClonerApp> apps = CloneResolver.listAllApps(this);
+        if (apps.isEmpty()) {
+            updateStatus("Tidak ada aplikasi yang bisa dipilih sebagai cloner.");
+            return;
+        }
+        ArrayList<String> labels = new ArrayList<>();
+        for (CloneResolver.ClonerApp c : apps) labels.add(c.label + "\n" + c.packageName);
+        new AlertDialog.Builder(this)
+            .setTitle("PILIH APP CLONER")
+            .setItems(labels.toArray(new String[0]), (d, which) -> onCloneAppPicked(apps.get(which)))
+            .setNegativeButton("BATAL", null)
+            .show();
+    }
+
+    private void onCloneAppPicked(CloneResolver.ClonerApp cloner) {
+        prefs.edit().putString(KEY_CLONE_APP, cloner.packageName).apply();
+        addActivityLog("Cloner dipilih: " + cloner.label + " (" + cloner.packageName + ")");
+        DocumentFile root = getTree(KEY_CLONE_ROOT);
+        if (validDir(root)) {
+            scanAndPickCloneTarget();
+            return;
+        }
+        // One-time grant: the user points eVault at the cloner's data folder.
+        // From then on, clone discovery is automatic.
+        new AlertDialog.Builder(this)
+            .setTitle("FOLDER DATA CLONER")
+            .setMessage("Pilih folder data " + cloner.label + " (sekali saja — selanjutnya eVault menemukan clone secara otomatis).")
+            .setPositiveButton("PILIH FOLDER", (d, w) -> pickCloneRoot.launch(folderPickerIntent()))
+            .setNegativeButton("BATAL", null)
+            .show();
+    }
+
+    /** Scans the granted cloner data root for clone AUTH targets. */
+    private void scanAndPickCloneTarget() {
+        DocumentFile root = getTree(KEY_CLONE_ROOT);
+        if (!validDir(root)) {
+            updateStatus("Folder data cloner belum dipilih / izin hilang. Ulangi PILIH CLONE.");
+            return;
+        }
+        updateStatus("Mencari clone eFootball…");
+        runOnIo(() -> CloneResolver.findCloneTargets(root), targets -> {
+            if (targets == null || targets.isEmpty()) {
+                updateStatus("Tidak ada clone eFootball ditemukan di folder data cloner. Cek foldernya, lalu ulangi PILIH CLONE.");
+                return;
+            }
+            if (targets.size() == 1) {
+                setCloneTarget(targets.get(0));
+                return;
+            }
+            ArrayList<String> labels = new ArrayList<>();
+            for (CloneResolver.CloneTarget t : targets) labels.add(t.label);
+            new AlertDialog.Builder(this)
+                .setTitle("PILIH CLONE")
+                .setItems(labels.toArray(new String[0]), (d, which) -> setCloneTarget(targets.get(which)))
+                .setNegativeButton("BATAL", null)
+                .show();
+        });
+    }
+
+    /** Makes a discovered clone the AUTH target: all AUTH ops now work against it. */
+    private void setCloneTarget(CloneResolver.CloneTarget target) {
+        // Persist the AUTH dir as the target (same as PILIH FOLDER AUTH, but resolved automatically).
+        saveTree(KEY_TARGET, target.authDir.getUri());
+        prefs.edit()
+            .putString(KEY_CLONE_FILES_DIR, target.filesDir.getUri().toString())
+            .putString(KEY_CLONE_LABEL, target.label)
+            .apply();
+        // The files-dir URI needs its own persisted permission (it is not the tree root).
+        try {
+            getContentResolver().takePersistableUriPermission(target.filesDir.getUri(),
+                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (Exception ignored) { }
+        addActivityLog("Clone aktif: " + target.label + " — target AUTH diarahkan ke clone.");
+        updateStatus("✓ Clone aktif: " + target.label + " — AUTH target = clone ini.");
+    }
+
+    // ================= Export TAR (v1.3.8) =================
+
+    /** EXPORT TAR: packs assetpacks/ + SaveData/ from the active clone into a .tar file. */
+    private void exportTar() {
+        DocumentFile filesDir = getTree(KEY_CLONE_FILES_DIR);
+        if (!validDir(filesDir)) {
+            showInfoDialog("EXPORT TAR", "Pilih clone dulu lewat PILIH CLONE, supaya eVault tahu folder data game-nya.");
+            return;
+        }
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(new Date());
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/x-tar");
+        i.putExtra(Intent.EXTRA_TITLE, "eVault-KONAMI-" + stamp + ".tar");
+        pickExportTar.launch(i);
+    }
+
+    /** Writes the .tar (streamed, off the UI thread). Returns a status line. */
+    private String exportTarToUri(Uri uri) {
+        DocumentFile filesDir = getTree(KEY_CLONE_FILES_DIR);
+        if (!validDir(filesDir)) return "EXPORT TAR gagal: folder data clone tidak ditemukan. Ulangi PILIH CLONE.";
+        long started = System.currentTimeMillis();
+        TarCounter counter = new TarCounter();
+        try {
+            OutputStream raw = getContentResolver().openOutputStream(uri, "w");
+            if (raw == null) return "EXPORT TAR gagal: tidak bisa menulis file tujuan.";
+            try (TarWriter tw = new TarWriter(raw)) {
+                addDirToTar(tw, filesDir, "assetpacks", counter);
+                addDirToTar(tw, filesDir, "SaveData", counter);
+                tw.finish();
+            }
+        } catch (Exception e) {
+            addActivityLog("EXPORT TAR gagal: " + e.getClass().getSimpleName());
+            return "EXPORT TAR gagal: " + String.valueOf(e.getMessage());
+        }
+        long secs = Math.max(1, (System.currentTimeMillis() - started) / 1000);
+        double mb = counter.bytes / 1048576.0;
+        addActivityLog(String.format(Locale.US, "EXPORT TAR selesai: %d file, %.1f MB, %d dtk (dilewati: %d)",
+                counter.files, mb, secs, counter.skipped));
+        return String.format(Locale.US, "✓ EXPORT TAR selesai: %d file, %.1f MB, %d dtk%s",
+                counter.files, mb, secs, counter.skipped > 0 ? " (dilewati: " + counter.skipped + ")" : "");
+    }
+
+    private static class TarCounter { int files; int skipped; long bytes; }
+
+    private void addDirToTar(TarWriter tw, DocumentFile filesDir, String childName,
+                             TarCounter counter) throws Exception {
+        DocumentFile child = filesDir.findFile(childName);
+        if (child == null || !child.isDirectory()) {
+            addActivityLog("EXPORT TAR: folder " + childName + " tidak ditemukan, dilewati.");
+            counter.skipped++;
+            return;
+        }
+        addTreeToTar(tw, child, childName, counter);
+    }
+
+    private void addTreeToTar(TarWriter tw, DocumentFile dir, String tarPath, TarCounter counter) throws Exception {
+        tw.addDirectory(tarPath, dir.lastModified());
+        for (DocumentFile child : safeList(dir)) {
+            String name = child.getName();
+            if (name == null || name.isEmpty()) { counter.skipped++; continue; }
+            String path = tarPath + "/" + name;
+            if (child.isDirectory()) {
+                addTreeToTar(tw, child, path, counter);
+            } else if (child.isFile()) {
+                try (InputStream in = getContentResolver().openInputStream(child.getUri())) {
+                    if (in == null) throw new Exception("stream null");
+                    tw.addFile(path, child.length(), child.lastModified(), in);
+                    counter.files++;
+                    counter.bytes += child.length();
+                } catch (Exception e) {
+                    counter.skipped++;
+                    addActivityLog("EXPORT TAR lewati file: " + path);
+                }
+            }
+        }
     }
 
     /** Deteksi eFootball: label mengandung "efootball", ATAU package mengandung ciri eFootball. */
