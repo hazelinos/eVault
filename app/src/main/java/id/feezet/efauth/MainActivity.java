@@ -1,20 +1,15 @@
 package id.feezet.efauth;
 
 import android.app.AlertDialog;
-import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -115,15 +110,13 @@ public class MainActivity extends AppCompatActivity {
     private static final String NAMING_LETTERED = "lettered";
     private static final String MODE_NONE = "none";
     private static final String MODE_CREATE = "create";
-    private static final String DEFAULT_GAME_PACKAGE = "epl.idsphone";
-    private static final String KEY_GAME_PACKAGE = "game_package";
-    // ---- Clone flow: AUTH target can be SAF (manual folder) or a plain file path (auto-detected clone) ----
+    /** The original eFootball package: excluded from clone auto-detect (never the default). */
+    private static final String ORIGINAL_GAME_PACKAGE = "epl.idsphone";
+    // ---- AUTH target: SAF (manual folder) or a plain file path (set by an earlier clone build) ----
     private static final String KEY_TARGET_MODE = "target_mode";
     private static final String MODE_SAF = "saf";
     private static final String MODE_FILE = "file";
     private static final String KEY_TARGET_FILE = "target_file";
-    private static final String KEY_CLONE_FILES_DIR = "clone_files_dir";
-    private static final String KEY_CLONE_LABEL = "clone_label";
 
     private SharedPreferences prefs;
     private TextView status;
@@ -143,8 +136,6 @@ public class MainActivity extends AppCompatActivity {
     private String sessionLoginDay = null;
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
-    /** True while waiting to return from the All Files Access settings / permission dialog. */
-    private boolean pendingCloneScan;
 
     // ---- Auto Login progress screen ----
     private View mainScreen;
@@ -190,9 +181,7 @@ public class MainActivity extends AppCompatActivity {
             new ActivityResultContracts.StartActivityForResult(), r -> {
                 if (r.getResultCode() == RESULT_OK && r.getData() != null) {
                     saveTree(KEY_TARGET, r.getData().getData());
-                    // A manually picked SAF folder is the target now; a previously
-                    // auto-detected clone files dir (if any) no longer applies.
-                    prefs.edit().putString(KEY_TARGET_MODE, MODE_SAF).remove(KEY_CLONE_FILES_DIR).apply();
+                    prefs.edit().putString(KEY_TARGET_MODE, MODE_SAF).apply();
                     updateStatus("Target AUTH tersimpan.");
                 }
             });
@@ -206,25 +195,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    /** Legacy storage permission request for Android 9 and below (API < 30). */
-    private final ActivityResultLauncher<String[]> requestLegacyStorage = registerForActivityResult(
-            new ActivityResultContracts.RequestMultiplePermissions(), result -> {
-                pendingCloneScan = false;
-                if (hasFileAccess()) scanAndPickCloneTarget();
-                else updateStatus("Izin akses file ditolak. PILIH CLONE butuh izin akses file.");
-            });
-
-    /** Save location for EXPORT TAR (Storage Access Framework create-document). */
-    private final ActivityResultLauncher<Intent> pickExportTar = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(), r -> {
-                if (r.getResultCode() == RESULT_OK && r.getData() != null) {
-                    Uri uri = r.getData().getData();
-                    updateStatus("EXPORT TAR berjalan… (assetpacks + SaveData, bisa beberapa menit)");
-                    runOnIo(() -> exportTarToUri(uri), result -> {
-                        if (result != null) updateStatus(result);
-                    });
-                }
-            });
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -295,11 +265,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // Returning from the All Files Access settings: run the pending clone scan.
-        if (pendingCloneScan) {
-            pendingCloneScan = false;
-            if (hasFileAccess()) scanAndPickCloneTarget();
-        }
 
         // If eVault was closed/restarted while Create Account was in progress,
         // restore the saved progress instead of starting from the beginning.
@@ -422,22 +387,6 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams setupRow2Lp = fullLp();
         setupRow2Lp.topMargin = dp(8);
         setupCard.addView(setupRow2, setupRow2Lp);
-
-        Button gameBtn = secondaryButton("🎮 PILIH GAME", v -> showGamePickerDialog());
-        LinearLayout.LayoutParams gameLp = fullLp();
-        gameLp.topMargin = dp(8);
-        setupCard.addView(gameBtn, gameLp);
-
-        // Clone flow (v1.3.8): PILIH CLONE + EXPORT TAR.
-        LinearLayout setupRow3 = new LinearLayout(this);
-        setupRow3.setOrientation(LinearLayout.HORIZONTAL);
-        Button cloneBtn = secondaryButton("📱 PILIH CLONE", v -> showClonePickerDialog());
-        setupRow3.addView(cloneBtn, weightLp(dp(6), 0));
-        Button exportTarBtn = secondaryButton("📦 EXPORT TAR", v -> exportTar());
-        setupRow3.addView(exportTarBtn, weightLp(dp(6), 1));
-        LinearLayout.LayoutParams setupRow3Lp = fullLp();
-        setupRow3Lp.topMargin = dp(8);
-        setupCard.addView(setupRow3, setupRow3Lp);
 
         // Delay input (moved to Setup)
         TextView delayLabel = new TextView(this);
@@ -800,9 +749,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * The AUTH target, in whichever form it was set: a plain file path when a
-     * clone was auto-detected (PILIH CLONE), or a SAF tree when the user
-     * picked a folder manually (PILIH FOLDER AUTH). File-backed targets work
+     * The AUTH target, in whichever form it was set: a plain file path
+     * (set by an earlier clone build), or a SAF tree when the user picked
+     * a folder manually (PILIH FOLDER AUTH). File-backed targets work
      * with every existing DocumentFile operation because ContentResolver
      * opens file:// URIs directly.
      */
@@ -817,28 +766,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         return getTree(KEY_TARGET);
-    }
-
-    /** The auto-detected clone's game-data folder, in the same SAF/File duality as the target. */
-    private DocumentFile getCloneFilesDir() {
-        if (MODE_FILE.equals(prefs.getString(KEY_TARGET_MODE, MODE_SAF))) {
-            String path = prefs.getString(KEY_CLONE_FILES_DIR, null);
-            if (path == null || path.isEmpty()) return null;
-            try {
-                return DocumentFile.fromFile(new File(path));
-            } catch (Exception e) {
-                return null;
-            }
-        }
-        return getTree(KEY_CLONE_FILES_DIR);
-    }
-
-    /** All Files Access (API 30+) or legacy read permission (API < 30). */
-    private boolean hasFileAccess() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager();
-        }
-        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
     }
 
     /** Shared account ordering: numeric name prefix first, then name alphabetically. */
@@ -2471,14 +2398,33 @@ public class MainActivity extends AppCompatActivity {
         if (dest == null) return false;
         return streamInto(source, dest, "wt");
     }
-    /** Package game yang dipakai: pilihan user, atau default eFootball bila belum dipilih. */
+    /**
+     * The eFootball clone package, auto-detected: the first installed
+     * eFootball package that is NOT the original. Sorted so the result is
+     * stable when several clones exist. Returns null when no clone is
+     * installed — there is deliberately no epl.idsphone fallback.
+     */
     private String gamePackage(){
-        String p=prefs.getString(KEY_GAME_PACKAGE,null);
-        return (p==null||p.trim().isEmpty())?DEFAULT_GAME_PACKAGE:p;
+        Intent main=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<android.content.pm.ResolveInfo> apps=getPackageManager().queryIntentActivities(main,0);
+        ArrayList<String> clones=new ArrayList<>();
+        for(android.content.pm.ResolveInfo ri:apps){
+            String pn=ri.activityInfo.packageName;
+            String label=String.valueOf(ri.loadLabel(getPackageManager()));
+            if(!ORIGINAL_GAME_PACKAGE.equals(pn)&&isEfootballPackage(pn,label)&&!clones.contains(pn))clones.add(pn);
+        }
+        if(clones.isEmpty())return null;
+        Collections.sort(clones);
+        return clones.get(0);
     }
 
     private boolean launchGame(){
         String pkg=gamePackage();
+        if(pkg==null||pkg.isEmpty()){
+            addActivityLog("Gagal membuka eFootball: clone eFootball tidak ditemukan.");
+            updateStatus("Clone eFootball tidak ditemukan.");
+            return false;
+        }
         Intent i=getPackageManager().getLaunchIntentForPackage(pkg);
         if(i==null){
             addActivityLog("Gagal membuka eFootball: package " + pkg + " tidak ditemukan.");
@@ -2494,213 +2440,6 @@ public class MainActivity extends AppCompatActivity {
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
             updateStatus("Gagal membuka eFootball.");
             return false;
-        }
-    }
-
-    /** Hanya daftar package eFootball (bukan semua app). */
-    private void showGamePickerDialog(){
-        Intent main=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<android.content.pm.ResolveInfo> apps=getPackageManager().queryIntentActivities(main,0);
-        final ArrayList<String> pkgs=new ArrayList<>();
-        final ArrayList<String> labels=new ArrayList<>();
-        for(android.content.pm.ResolveInfo ri:apps){
-            String pn=ri.activityInfo.packageName;
-            String label=String.valueOf(ri.loadLabel(getPackageManager()));
-            if(isEfootballPackage(pn,label)&&!pkgs.contains(pn)){pkgs.add(pn);labels.add(label+"\n"+pn);}
-        }
-        if(pkgs.isEmpty()){
-            updateStatus("Tidak ada eFootball terdeteksi. Pakai input manual.");
-            showManualPackageDialog();
-            return;
-        }
-        String current=gamePackage();
-        int checked=-1;
-        for(int i=0;i<pkgs.size();i++) if(pkgs.get(i).equals(current)) checked=i;
-        new AlertDialog.Builder(this)
-            .setTitle("PILIH GAME eFootball")
-            .setSingleChoiceItems(labels.toArray(new String[0]),checked,(d,which)->{
-                String picked=pkgs.get(which);
-                prefs.edit().putString(KEY_GAME_PACKAGE,picked).apply();
-                addActivityLog("Game eFootball dipilih: "+picked);
-                updateStatus("Game diset: "+picked);
-                d.dismiss();
-            })
-            .setNeutralButton("INPUT MANUAL",(d,w)->showManualPackageDialog())
-            .setNegativeButton("BATAL",null)
-            .show();
-    }
-
-    /** Isi package secara manual bila clone tidak terdeteksi otomatis. */
-    private void showManualPackageDialog(){
-        final EditText input=new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("mis. epl.idsphone");
-        input.setText(gamePackage());
-        styleInput(input);
-        new AlertDialog.Builder(this)
-            .setTitle("PACKAGE GAME")
-            .setMessage("Masukkan package id game eFootball:")
-            .setView(input)
-            .setNegativeButton("BATAL",null)
-            .setPositiveButton("SIMPAN",(d,w)->{
-                String pkg=input.getText().toString().trim();
-                if(pkg.isEmpty()){updateStatus("Package kosong.");return;}
-                if(getPackageManager().getLaunchIntentForPackage(pkg)==null){
-                    updateStatus("Package \""+pkg+"\" tidak ditemukan / tidak bisa dibuka.");
-                    return;
-                }
-                prefs.edit().putString(KEY_GAME_PACKAGE,pkg).apply();
-                addActivityLog("Game eFootball diset manual: "+pkg);
-                updateStatus("Game diset: "+pkg);
-            })
-            .show();
-    }
-
-    // ================= Clone flow: All Files Access + auto-detect =================
-
-    /** PILIH CLONE: auto-detect clone data on shared storage (no folder picker). */
-    private void showClonePickerDialog() {
-        if (!hasFileAccess()) {
-            requestFileAccess();
-            return;
-        }
-        scanAndPickCloneTarget();
-    }
-
-    private void requestFileAccess() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            pendingCloneScan = true;
-            new AlertDialog.Builder(this)
-                .setTitle("AKSES FILE")
-                .setMessage("PILIH CLONE butuh izin All Files Access supaya eVault bisa menemukan data clone secara otomatis (seperti Root Explorer).")
-                .setPositiveButton("BUKA PENGATURAN", (d, w) -> {
-                    try {
-                        Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                            Uri.parse("package:" + getPackageName()));
-                        startActivity(i);
-                    } catch (Exception e) {
-                        startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-                    }
-                })
-                .setNegativeButton("BATAL", (d, w) -> pendingCloneScan = false)
-                .show();
-            return;
-        }
-        pendingCloneScan = true;
-        requestLegacyStorage.launch(new String[]{
-            Manifest.permission.READ_EXTERNAL_STORAGE,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE});
-    }
-
-    /** Scans every storage volume for clone AUTH targets. */
-    private void scanAndPickCloneTarget() {
-        updateStatus("Mencari clone eFootball…");
-        runOnIo(() -> CloneResolver.findCloneTargets(CloneResolver.listStorageRoots(this)), targets -> {
-            if (targets == null || targets.isEmpty()) {
-                updateStatus("Tidak ada clone eFootball ditemukan di penyimpanan. Pastikan data clone ada di internal/SD card, lalu ulangi PILIH CLONE.");
-                return;
-            }
-            if (targets.size() == 1) {
-                setFileCloneTarget(targets.get(0));
-                return;
-            }
-            ArrayList<String> labels = new ArrayList<>();
-            for (CloneResolver.CloneTarget t : targets) labels.add(t.label);
-            new AlertDialog.Builder(this)
-                .setTitle("PILIH CLONE")
-                .setItems(labels.toArray(new String[0]), (d, which) -> setFileCloneTarget(targets.get(which)))
-                .setNegativeButton("BATAL", null)
-                .show();
-        });
-    }
-
-    /** Makes a discovered clone the AUTH target: all AUTH ops now work against it. */
-    private void setFileCloneTarget(CloneResolver.CloneTarget target) {
-        prefs.edit()
-            .putString(KEY_TARGET_MODE, MODE_FILE)
-            .putString(KEY_TARGET_FILE, target.authDir.getAbsolutePath())
-            .putString(KEY_CLONE_FILES_DIR, target.filesDir.getAbsolutePath())
-            .putString(KEY_CLONE_LABEL, target.label)
-            .apply();
-        addActivityLog("Clone aktif: " + target.label + " — target AUTH diarahkan ke clone.");
-        updateStatus("✓ Clone aktif: " + target.label + " — AUTH target = clone ini.");
-    }
-
-    // ================= Export TAR (v1.3.8) =================
-
-    /** EXPORT TAR: packs assetpacks/ + SaveData/ from the active clone into a .tar file. */
-    private void exportTar() {
-        DocumentFile filesDir = getCloneFilesDir();
-        if (!validDir(filesDir)) {
-            showInfoDialog("EXPORT TAR", "Pilih clone dulu lewat PILIH CLONE, supaya eVault tahu folder data game-nya.");
-            return;
-        }
-        String stamp = new SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(new Date());
-        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("application/x-tar");
-        i.putExtra(Intent.EXTRA_TITLE, "eVault-KONAMI-" + stamp + ".tar");
-        pickExportTar.launch(i);
-    }
-
-    /** Writes the .tar (streamed, off the UI thread). Returns a status line. */
-    private String exportTarToUri(Uri uri) {
-        DocumentFile filesDir = getCloneFilesDir();
-        if (!validDir(filesDir)) return "EXPORT TAR gagal: folder data clone tidak ditemukan. Ulangi PILIH CLONE.";
-        long started = System.currentTimeMillis();
-        TarCounter counter = new TarCounter();
-        try {
-            OutputStream raw = getContentResolver().openOutputStream(uri, "w");
-            if (raw == null) return "EXPORT TAR gagal: tidak bisa menulis file tujuan.";
-            try (TarWriter tw = new TarWriter(raw)) {
-                addDirToTar(tw, filesDir, "assetpacks", counter);
-                addDirToTar(tw, filesDir, "SaveData", counter);
-                tw.finish();
-            }
-        } catch (Exception e) {
-            addActivityLog("EXPORT TAR gagal: " + e.getClass().getSimpleName());
-            return "EXPORT TAR gagal: " + String.valueOf(e.getMessage());
-        }
-        long secs = Math.max(1, (System.currentTimeMillis() - started) / 1000);
-        double mb = counter.bytes / 1048576.0;
-        addActivityLog(String.format(Locale.US, "EXPORT TAR selesai: %d file, %.1f MB, %d dtk (dilewati: %d)",
-                counter.files, mb, secs, counter.skipped));
-        return String.format(Locale.US, "✓ EXPORT TAR selesai: %d file, %.1f MB, %d dtk%s",
-                counter.files, mb, secs, counter.skipped > 0 ? " (dilewati: " + counter.skipped + ")" : "");
-    }
-
-    private static class TarCounter { int files; int skipped; long bytes; }
-
-    private void addDirToTar(TarWriter tw, DocumentFile filesDir, String childName,
-                             TarCounter counter) throws Exception {
-        DocumentFile child = filesDir.findFile(childName);
-        if (child == null || !child.isDirectory()) {
-            addActivityLog("EXPORT TAR: folder " + childName + " tidak ditemukan, dilewati.");
-            counter.skipped++;
-            return;
-        }
-        addTreeToTar(tw, child, childName, counter);
-    }
-
-    private void addTreeToTar(TarWriter tw, DocumentFile dir, String tarPath, TarCounter counter) throws Exception {
-        tw.addDirectory(tarPath, dir.lastModified());
-        for (DocumentFile child : safeList(dir)) {
-            String name = child.getName();
-            if (name == null || name.isEmpty()) { counter.skipped++; continue; }
-            String path = tarPath + "/" + name;
-            if (child.isDirectory()) {
-                addTreeToTar(tw, child, path, counter);
-            } else if (child.isFile()) {
-                try (InputStream in = getContentResolver().openInputStream(child.getUri())) {
-                    if (in == null) throw new Exception("stream null");
-                    tw.addFile(path, child.length(), child.lastModified(), in);
-                    counter.files++;
-                    counter.bytes += child.length();
-                } catch (Exception e) {
-                    counter.skipped++;
-                    addActivityLog("EXPORT TAR lewati file: " + path);
-                }
-            }
         }
     }
 

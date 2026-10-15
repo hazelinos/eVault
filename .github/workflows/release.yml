@@ -75,21 +75,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(cat <<'EOF'
-          Clone flow + EXPORT TAR.
+          No more pickers: PILIH CLONE, PILIH GAME, and EXPORT TAR removed.
 
-          - PILIH CLONE: eVault auto-detects clone data on shared storage
-            (internal storage / external SD card), like Root Explorer —
-            with All Files Access granted once, it scans every storage
-            volume for folders containing SaveData/AUTH/ and lets the user
-            pick the clone. No folder picker, no root, no Shizuku. All AUTH
-            operations (SWITCH, SIMPAN, AUTO LOGIN, ...) work against the
-            clone unchanged.
-          - EXPORT TAR: packs the active clone's game data (assetpacks/ +
-            SaveData/) into a KONAMI.TAR-style .tar file for backup/transfer
-            into another clone. Streamed, so a ~2 GB export never holds file
-            contents in memory.
-          - Launch behaviour is unchanged: MASUK EFOOTBALL still launches the
-            selected game package.
+          - MASUK EFOOTBALL now auto-detects the eFootball clone: it
+            launches the first installed eFootball package that is NOT
+            the original (epl.idsphone). No picker, no manual package
+            input, and deliberately no epl.idsphone fallback.
 
           Includes everything from v1.3.7.
           EOF

@@ -1,20 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
-    <!-- PILIH CLONE: All Files Access so eVault can auto-detect clone data on
-         shared storage (internal storage / external SD card) like a file
-         manager — no folder picker, no root, no Shizuku. eVault is
-         distributed via GitHub releases, not Google Play. -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
-    <!-- Legacy storage permissions for Android 9 and below (API < 30), where
-         MANAGE_EXTERNAL_STORAGE does not exist. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-    <!-- PILIH CLONE (v1.3.8): list installed apps to detect cloner apps.
-         Without this, Android 11+ returns only a filtered app list and
-         cloners would be invisible to detection. eVault is distributed
-         via GitHub releases, not Google Play. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     <application
         android:theme="@style/AppTheme"
         android:label="eVault"
