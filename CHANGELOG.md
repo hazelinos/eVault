@@ -7,7 +7,7 @@ All notable changes to eVault are documented here.
 ### What 1.3.8 ended up as
 
 - **No more pickers**: the PILIH CLONE, PILIH GAME, and EXPORT TAR buttons (added earlier the same day) were removed at the user's request.
-- **MASUK EFOOTBALL auto-detects the clone**: it launches the first installed eFootball package that is NOT the original (`epl.idsphone`). No picker, no manual package input, and deliberately no `epl.idsphone` fallback — if no clone is installed it reports "Clone eFootball tidak ditemukan."
+- **MASUK EFOOTBALL auto-detects the clone**: it launches the first installed eFootball package that is NOT the original (`epl.idsphone`). No picker, no manual package input, and deliberately no `epl.idsphone` fallback — if no clone is installed it reports "Clone eFootball tidak ditemukan." Detection recognizes the "ids" package family (`ucl.idsphone`, `idspatch`, …) in addition to the Konami/eFootball/PES markers.
 - AUTH target handling is unchanged: a manually picked SAF folder (PILIH FOLDER AUTH) plus file-path targets set by the earlier 1.3.8 clone build keep working.
 
 ### Maintenance
