@@ -80,7 +80,8 @@ jobs:
           - MASUK EFOOTBALL now auto-detects the eFootball clone: it
             launches the first installed eFootball package that is NOT
             the original (epl.idsphone). No picker, no manual package
-            input, and deliberately no epl.idsphone fallback.
+            input, and deliberately no epl.idsphone fallback. Detection
+            recognizes the "ids" package family (ucl.idsphone, idspatch, ...).
 
           Includes everything from v1.3.7.
           EOF

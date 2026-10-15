@@ -18,7 +18,7 @@ eVault keeps your AUTH library organized and makes switching between accounts st
 - **Auto Login** — process all accounts, unverified accounts, or a selected account.
 - **Login Verification** — record successful logins for the current UTC date.
 - **Activity Log** — keep a local history of eVault actions.
-- **Auto-detect clone** — MASUK EFOOTBALL launches the first installed eFootball package that is NOT the original (`epl.idsphone`). No picker, no manual package input.
+- **Auto-detect clone** — MASUK EFOOTBALL launches the first installed eFootball package that is NOT the original (`epl.idsphone`). Recognizes the "ids" package family (`ucl.idsphone`, `idspatch`, …). No picker, no manual package input.
 - **Persistent Settings** — keep the Auto Login delay between app launches.
 
 ## Save AUTH flow

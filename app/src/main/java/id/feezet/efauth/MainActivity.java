@@ -2449,8 +2449,11 @@ public class MainActivity extends AppCompatActivity {
         String l=label==null?"":label.toLowerCase();
         // 1) Label yang tampil di HP
         if(l.contains("efootball")) return true;
-        // 2) Package id (ciri eFootball / Konami / PES)
-        if(p.contains("epl.idsphone")) return true;
+        // 2) Package id (ciri eFootball / Konami / PES / family "ids")
+        // Clone/varian eFootball package-nya mengandung "ids": ucl.idsphone,
+        // epl.idsphone, idspatch, dst. "idsphone" sudah mencakup epl.idsphone.
+        if(p.contains("idsphone")) return true;
+        if(p.contains("idspatch")) return true;
         if(p.contains("konami")) return true;
         if(p.contains("efootball")) return true;
         if(p.contains("pes20")) return true;
