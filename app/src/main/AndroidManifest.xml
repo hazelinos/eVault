@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- PILIH CLONE (v1.3.8): list installed apps to detect cloner apps.
+         Without this, Android 11+ returns only a filtered app list and
+         cloners would be invisible to detection. eVault is distributed
+         via GitHub releases, not Google Play. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     <application
         android:theme="@style/AppTheme"
         android:label="eVault"

@@ -2,7 +2,7 @@
 
 **eVault** is a lightweight Android utility for managing eFootball AUTH files (`online_user_id_data.dat`) locally.
 
-> Current release: **v1.3.7**
+> Current release: **v1.3.8**
 
 ## Overview
 
@@ -18,6 +18,8 @@ eVault keeps your AUTH library organized and makes switching between accounts st
 - **Auto Login** — process all accounts, unverified accounts, or a selected account.
 - **Login Verification** — record successful logins for the current UTC date.
 - **Activity Log** — keep a local history of eVault actions.
+- **Clone Flow (PILIH CLONE)** — detect installed cloner apps and auto-resolve a clone's AUTH target folder, so all AUTH operations work against the clone.
+- **Export TAR** — pack the active clone's game data (`assetpacks/` + `SaveData/`) into a KONAMI.TAR-style `.tar` file.
 - **Persistent Settings** — keep the Auto Login delay between app launches.
 
 ## Save AUTH flow

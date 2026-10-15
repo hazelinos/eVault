@@ -49,9 +49,9 @@ jobs:
       - name: Verify release version
         shell: bash
         run: |
-          grep -q 'versionCode = 29' app/build.gradle.kts
-          grep -q 'versionName = "1.3.7"' app/build.gradle.kts
-          echo 'Version verified: 1.3.7 (29)'
+          grep -q 'versionCode = 30' app/build.gradle.kts
+          grep -q 'versionName = "1.3.8"' app/build.gradle.kts
+          echo 'Version verified: 1.3.8 (30)'
 
       - name: Build installable APK
         run: ./gradlew assembleDebug --stacktrace
@@ -60,13 +60,13 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.3.7.apk
+          cp "$apk" eVault-v1.3.8.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.3.7
-          path: eVault-v1.3.7.apk
+          name: eVault-v1.3.8
+          path: eVault-v1.3.8.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -75,22 +75,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(cat <<'EOF'
-          Bug fixes and stability improvements.
+          Clone flow + EXPORT TAR.
 
-          - Auto Login can now be resumed after the app was killed while the game was open, or after a FAILED run
-          - Rotation no longer aborts an in-flight Auto Login
-          - Switch Account works after the library list is reloaded
-          - A revoked/expired storage (SAF) grant no longer crashes the app
-          - Save/Create AUTH runs off the UI thread and no longer fails silently on providers that rename files
-          - Account-list dialog height is capped for short screens
+          - PILIH CLONE: eVault detects installed cloner apps (Mochi Cloner,
+            Dual Space, Parallel Space, ...) and auto-resolves the clone's
+            AUTH target folder (SaveData/AUTH/) — no more manual folder
+            picking. The cloner data folder is granted once via SAF; clone
+            discovery is automatic afterwards. All AUTH operations
+            (SWITCH, SIMPAN, AUTO LOGIN, ...) work against the clone unchanged.
+          - EXPORT TAR: packs the active clone's game data (assetpacks/ +
+            SaveData/) into a KONAMI.TAR-style .tar file for backup/transfer
+            into another clone. Streamed, so a ~2 GB export never holds file
+            contents in memory.
+          - Launch behaviour is unchanged: MASUK EFOOTBALL still launches the
+            selected game package.
 
-          Includes everything from v1.3.6:
-          - Auto Login menu simplified to: all accounts / not-yet-logged-in-today
+          Includes everything from v1.3.7.
           EOF
           )
-          if gh release view v1.3.7 >/dev/null 2>&1; then
-            gh release edit v1.3.7 --title "eVault v1.3.7" --notes "$NOTES" --latest
+          if gh release view v1.3.8 >/dev/null 2>&1; then
+            gh release edit v1.3.8 --title "eVault v1.3.8" --notes "$NOTES" --latest
           else
-            gh release create v1.3.7 --title "eVault v1.3.7" --notes "$NOTES" --latest
+            gh release create v1.3.8 --title "eVault v1.3.8" --notes "$NOTES" --latest
           fi
-          gh release upload v1.3.7 eVault-v1.3.7.apk --clobber
+          gh release upload v1.3.8 eVault-v1.3.8.apk --clobber
