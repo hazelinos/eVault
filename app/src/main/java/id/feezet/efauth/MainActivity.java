@@ -1,15 +1,20 @@
 package id.feezet.efauth;
 
 import android.app.AlertDialog;
+import android.Manifest;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -33,6 +38,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.documentfile.provider.DocumentFile;
 
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -111,9 +117,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String MODE_CREATE = "create";
     private static final String DEFAULT_GAME_PACKAGE = "epl.idsphone";
     private static final String KEY_GAME_PACKAGE = "game_package";
-    // ---- Clone flow (v1.3.8): cloner app + its data root + resolved clone dirs ----
-    private static final String KEY_CLONE_APP = "clone_app";
-    private static final String KEY_CLONE_ROOT = "clone_root";
+    // ---- Clone flow: AUTH target can be SAF (manual folder) or a plain file path (auto-detected clone) ----
+    private static final String KEY_TARGET_MODE = "target_mode";
+    private static final String MODE_SAF = "saf";
+    private static final String MODE_FILE = "file";
+    private static final String KEY_TARGET_FILE = "target_file";
     private static final String KEY_CLONE_FILES_DIR = "clone_files_dir";
     private static final String KEY_CLONE_LABEL = "clone_label";
 
@@ -135,6 +143,8 @@ public class MainActivity extends AppCompatActivity {
     private String sessionLoginDay = null;
     private EditText autoLoginDelayEdit;
     private int setupCardId = View.NO_ID;
+    /** True while waiting to return from the All Files Access settings / permission dialog. */
+    private boolean pendingCloneScan;
 
     // ---- Auto Login progress screen ----
     private View mainScreen;
@@ -180,6 +190,9 @@ public class MainActivity extends AppCompatActivity {
             new ActivityResultContracts.StartActivityForResult(), r -> {
                 if (r.getResultCode() == RESULT_OK && r.getData() != null) {
                     saveTree(KEY_TARGET, r.getData().getData());
+                    // A manually picked SAF folder is the target now; a previously
+                    // auto-detected clone files dir (if any) no longer applies.
+                    prefs.edit().putString(KEY_TARGET_MODE, MODE_SAF).remove(KEY_CLONE_FILES_DIR).apply();
                     updateStatus("Target AUTH tersimpan.");
                 }
             });
@@ -193,15 +206,12 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    /** One-time grant of the cloner app's data folder; clone discovery is automatic after this. */
-    private final ActivityResultLauncher<Intent> pickCloneRoot = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(), r -> {
-                if (r.getResultCode() == RESULT_OK && r.getData() != null) {
-                    saveTree(KEY_CLONE_ROOT, r.getData().getData());
-                    scanAndPickCloneTarget();
-                } else {
-                    updateStatus("Pilih folder data cloner dibatalkan.");
-                }
+    /** Legacy storage permission request for Android 9 and below (API < 30). */
+    private final ActivityResultLauncher<String[]> requestLegacyStorage = registerForActivityResult(
+            new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                pendingCloneScan = false;
+                if (hasFileAccess()) scanAndPickCloneTarget();
+                else updateStatus("Izin akses file ditolak. PILIH CLONE butuh izin akses file.");
             });
 
     /** Save location for EXPORT TAR (Storage Access Framework create-document). */
@@ -233,7 +243,7 @@ public class MainActivity extends AppCompatActivity {
      *  Restore it so the user is never left without an installed AUTH. */
     private void recoverAbandonedCreateBackup(){
         if (!prefs.contains(KEY_CREATE_BACKUP)) return;
-        DocumentFile target = getTree(KEY_TARGET);
+        DocumentFile target = getTarget();
         if (!validDir(target)) return;
         DocumentFile auth = target.findFile(AUTH_FILE);
         boolean authMissing = auth == null || !auth.isFile();
@@ -283,6 +293,12 @@ public class MainActivity extends AppCompatActivity {
                 showAutoLoginConfirmationDialog();
             }
             return;
+        }
+
+        // Returning from the All Files Access settings: run the pending clone scan.
+        if (pendingCloneScan) {
+            pendingCloneScan = false;
+            if (hasFileAccess()) scanAndPickCloneTarget();
         }
 
         // If eVault was closed/restarted while Create Account was in progress,
@@ -783,6 +799,48 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * The AUTH target, in whichever form it was set: a plain file path when a
+     * clone was auto-detected (PILIH CLONE), or a SAF tree when the user
+     * picked a folder manually (PILIH FOLDER AUTH). File-backed targets work
+     * with every existing DocumentFile operation because ContentResolver
+     * opens file:// URIs directly.
+     */
+    private DocumentFile getTarget() {
+        if (MODE_FILE.equals(prefs.getString(KEY_TARGET_MODE, MODE_SAF))) {
+            String path = prefs.getString(KEY_TARGET_FILE, null);
+            if (path == null || path.isEmpty()) return null;
+            try {
+                return DocumentFile.fromFile(new File(path));
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return getTree(KEY_TARGET);
+    }
+
+    /** The auto-detected clone's game-data folder, in the same SAF/File duality as the target. */
+    private DocumentFile getCloneFilesDir() {
+        if (MODE_FILE.equals(prefs.getString(KEY_TARGET_MODE, MODE_SAF))) {
+            String path = prefs.getString(KEY_CLONE_FILES_DIR, null);
+            if (path == null || path.isEmpty()) return null;
+            try {
+                return DocumentFile.fromFile(new File(path));
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        return getTree(KEY_CLONE_FILES_DIR);
+    }
+
+    /** All Files Access (API 30+) or legacy read permission (API < 30). */
+    private boolean hasFileAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
     /** Shared account ordering: numeric name prefix first, then name alphabetically. */
     private static final Comparator<Account> ACCOUNT_NAME_ORDER = (a, b) -> {
         int sa = nameToSequence(a.name);
@@ -1016,7 +1074,7 @@ public class MainActivity extends AppCompatActivity {
         teardownAutoLogin();
         clearWorkflow();
 
-        DocumentFile target = getTree(KEY_TARGET);
+        DocumentFile target = getTarget();
         if (!validDir(target)) {
             showInfoDialog("SIMPAN AUTH", "Pilih folder AUTH eFootball terlebih dahulu di Setup.");
             return;
@@ -1145,7 +1203,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            DocumentFile target = getTree(KEY_TARGET);
+            DocumentFile target = getTarget();
             runOnIo(() -> {
                 DocumentFile accountDir = categoryDir.createDirectory(accountName);
                 if (!validDir(accountDir)) return "Gagal membuat penyimpanan. Coba nama lain.";
@@ -1229,7 +1287,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void executeDeleteData() {
-        DocumentFile target = getTree(KEY_TARGET);
+        DocumentFile target = getTarget();
         if (!validDir(target)) { updateStatus("Pilih folder AUTH eFootball terlebih dahulu."); return; }
         DocumentFile auth = target.findFile(AUTH_FILE);
         if (auth == null || !auth.isFile()) { updateStatus("Tidak ada AUTH di folder AUTH eFootball."); return; }
@@ -1263,7 +1321,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startCreateWorkflow(DocumentFile root,int count) {
         final DocumentFile accountRoot=accountRoot(root); if(!validDir(accountRoot)||count<1){updateStatus("Jumlah/folder penyimpanan tidak valid.");return;}
-        final DocumentFile target=getTree(KEY_TARGET); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
+        final DocumentFile target=getTarget(); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
         final List<String> categories = getLibraryCategories();
         if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
         new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(categories.toArray(new String[0]),(d,which)->{
@@ -1304,7 +1362,7 @@ public class MainActivity extends AppCompatActivity {
         String uri=prefs.getString(KEY_CREATE_BACKUP,null);
         prefs.edit().remove(KEY_CREATE_BACKUP).apply();
         if(uri==null)return;
-        DocumentFile target=getTree(KEY_TARGET);
+        DocumentFile target=getTarget();
         if(!validDir(target))return;
         DocumentFile bak=target.findFile(AUTH_FILE+".bak");
         if(bak==null||!bak.isFile())return;
@@ -1330,7 +1388,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void launchCurrentCreateAccount() {
-        DocumentFile target=getTree(KEY_TARGET); if(target!=null){DocumentFile old=target.findFile(AUTH_FILE);if(old!=null&&old.isFile())old.delete();}
+        DocumentFile target=getTarget(); if(target!=null){DocumentFile old=target.findFile(AUTH_FILE);if(old!=null&&old.isFile())old.delete();}
         List<String> names=split(prefs.getString(KEY_CREATE_NAMES,"")); int index=prefs.getInt(KEY_CREATE_INDEX,0); if(index>=names.size()){finishCreate();return;}
         updateStatus("Buat akun baru ["+(index+1)+"/"+names.size()+"]: "+names.get(index)); if(launchGame())workflowLaunchPending=true;else clearWorkflow();
     }
@@ -1442,9 +1500,9 @@ public class MainActivity extends AppCompatActivity {
         List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));int index=prefs.getInt(KEY_CREATE_INDEX,0);if(index>=names.size()){finishCreate();return;}String current=names.get(index);
         new AlertDialog.Builder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
                 .setNegativeButton("BATAL",(d,w)->{clearWorkflow();restoreTargetAuthBackup();updateStatus("Pembuatan akun baru dihentikan. AUTH lama dipulihkan bila ada.");})
-                .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
+                .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTarget();DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
                 .setPositiveButton("SIMPAN",(d,w)->{
-                    DocumentFile target=getTree(KEY_TARGET);DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
+                    DocumentFile target=getTarget();DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth==null||!auth.isFile()){updateStatus("AUTH tidak ditemukan di Target.");clearWorkflow();return;}
                     DocumentFile library=getTree(KEY_LIBRARY);DocumentFile root=categoryRoot(library,prefs.getString(KEY_CREATE_CATEGORY,"AKUN"));if(!validDir(root)){updateStatus("Kategori penyimpanan tidak tersedia.");clearWorkflow();return;}
                     updateStatus("Menyimpan AUTH: "+current+"...");
                     // Folder creation + AUTH copy are blocking SAF calls: keep them off the UI thread.
@@ -1471,7 +1529,7 @@ public class MainActivity extends AppCompatActivity {
     /** Removes the create-account AUTH backup once the workflow finished successfully. */
     private void cleanupCreateBackup(){
         prefs.edit().remove(KEY_CREATE_BACKUP).apply();
-        DocumentFile target=getTree(KEY_TARGET);
+        DocumentFile target=getTarget();
         if(validDir(target)){DocumentFile bak=target.findFile(AUTH_FILE+".bak");if(bak!=null)bak.delete();}
     }
 
@@ -2343,7 +2401,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean copyAuth(Account account){
-        DocumentFile target=getTree(KEY_TARGET);
+        DocumentFile target=getTarget();
         if(!validDir(target)){
             addActivityLog("COPY AUTH gagal: folder target belum dipilih.");
             updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");
@@ -2498,106 +2556,72 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    // ================= Clone flow (v1.3.8) =================
+    // ================= Clone flow: All Files Access + auto-detect =================
 
-    /** PILIH CLONE: detect cloner apps, then auto-resolve the clone's AUTH target. */
+    /** PILIH CLONE: auto-detect clone data on shared storage (no folder picker). */
     private void showClonePickerDialog() {
-        List<CloneResolver.ClonerApp> cloners = CloneResolver.detectCloners(this);
-        if (cloners.isEmpty()) {
-            // No cloner detected by heuristics: let the user pick any installed app.
-            showAllAppsCloneDialog();
+        if (!hasFileAccess()) {
+            requestFileAccess();
             return;
         }
-        if (cloners.size() == 1) {
-            onCloneAppPicked(cloners.get(0));
-            return;
-        }
-        ArrayList<String> labels = new ArrayList<>();
-        for (CloneResolver.ClonerApp c : cloners) labels.add(c.label + "\n" + c.packageName);
-        labels.add("APP LAIN…");
-        new AlertDialog.Builder(this)
-            .setTitle("PILIH CLONER")
-            .setItems(labels.toArray(new String[0]), (d, which) -> {
-                if (which == cloners.size()) showAllAppsCloneDialog();
-                else onCloneAppPicked(cloners.get(which));
-            })
-            .setNegativeButton("BATAL", null)
-            .show();
+        scanAndPickCloneTarget();
     }
 
-    private void showAllAppsCloneDialog() {
-        List<CloneResolver.ClonerApp> apps = CloneResolver.listAllApps(this);
-        if (apps.isEmpty()) {
-            updateStatus("Tidak ada aplikasi yang bisa dipilih sebagai cloner.");
+    private void requestFileAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            pendingCloneScan = true;
+            new AlertDialog.Builder(this)
+                .setTitle("AKSES FILE")
+                .setMessage("PILIH CLONE butuh izin All Files Access supaya eVault bisa menemukan data clone secara otomatis (seperti Root Explorer).")
+                .setPositiveButton("BUKA PENGATURAN", (d, w) -> {
+                    try {
+                        Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                        startActivity(i);
+                    } catch (Exception e) {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                    }
+                })
+                .setNegativeButton("BATAL", (d, w) -> pendingCloneScan = false)
+                .show();
             return;
         }
-        ArrayList<String> labels = new ArrayList<>();
-        for (CloneResolver.ClonerApp c : apps) labels.add(c.label + "\n" + c.packageName);
-        new AlertDialog.Builder(this)
-            .setTitle("PILIH APP CLONER")
-            .setItems(labels.toArray(new String[0]), (d, which) -> onCloneAppPicked(apps.get(which)))
-            .setNegativeButton("BATAL", null)
-            .show();
+        pendingCloneScan = true;
+        requestLegacyStorage.launch(new String[]{
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE});
     }
 
-    private void onCloneAppPicked(CloneResolver.ClonerApp cloner) {
-        prefs.edit().putString(KEY_CLONE_APP, cloner.packageName).apply();
-        addActivityLog("Cloner dipilih: " + cloner.label + " (" + cloner.packageName + ")");
-        DocumentFile root = getTree(KEY_CLONE_ROOT);
-        if (validDir(root)) {
-            scanAndPickCloneTarget();
-            return;
-        }
-        // One-time grant: the user points eVault at the cloner's data folder.
-        // From then on, clone discovery is automatic.
-        new AlertDialog.Builder(this)
-            .setTitle("FOLDER DATA CLONER")
-            .setMessage("Pilih folder data " + cloner.label + " (sekali saja — selanjutnya eVault menemukan clone secara otomatis).")
-            .setPositiveButton("PILIH FOLDER", (d, w) -> pickCloneRoot.launch(folderPickerIntent()))
-            .setNegativeButton("BATAL", null)
-            .show();
-    }
-
-    /** Scans the granted cloner data root for clone AUTH targets. */
+    /** Scans every storage volume for clone AUTH targets. */
     private void scanAndPickCloneTarget() {
-        DocumentFile root = getTree(KEY_CLONE_ROOT);
-        if (!validDir(root)) {
-            updateStatus("Folder data cloner belum dipilih / izin hilang. Ulangi PILIH CLONE.");
-            return;
-        }
         updateStatus("Mencari clone eFootball…");
-        runOnIo(() -> CloneResolver.findCloneTargets(root), targets -> {
+        runOnIo(() -> CloneResolver.findCloneTargets(CloneResolver.listStorageRoots(this)), targets -> {
             if (targets == null || targets.isEmpty()) {
-                updateStatus("Tidak ada clone eFootball ditemukan di folder data cloner. Cek foldernya, lalu ulangi PILIH CLONE.");
+                updateStatus("Tidak ada clone eFootball ditemukan di penyimpanan. Pastikan data clone ada di internal/SD card, lalu ulangi PILIH CLONE.");
                 return;
             }
             if (targets.size() == 1) {
-                setCloneTarget(targets.get(0));
+                setFileCloneTarget(targets.get(0));
                 return;
             }
             ArrayList<String> labels = new ArrayList<>();
             for (CloneResolver.CloneTarget t : targets) labels.add(t.label);
             new AlertDialog.Builder(this)
                 .setTitle("PILIH CLONE")
-                .setItems(labels.toArray(new String[0]), (d, which) -> setCloneTarget(targets.get(which)))
+                .setItems(labels.toArray(new String[0]), (d, which) -> setFileCloneTarget(targets.get(which)))
                 .setNegativeButton("BATAL", null)
                 .show();
         });
     }
 
     /** Makes a discovered clone the AUTH target: all AUTH ops now work against it. */
-    private void setCloneTarget(CloneResolver.CloneTarget target) {
-        // Persist the AUTH dir as the target (same as PILIH FOLDER AUTH, but resolved automatically).
-        saveTree(KEY_TARGET, target.authDir.getUri());
+    private void setFileCloneTarget(CloneResolver.CloneTarget target) {
         prefs.edit()
-            .putString(KEY_CLONE_FILES_DIR, target.filesDir.getUri().toString())
+            .putString(KEY_TARGET_MODE, MODE_FILE)
+            .putString(KEY_TARGET_FILE, target.authDir.getAbsolutePath())
+            .putString(KEY_CLONE_FILES_DIR, target.filesDir.getAbsolutePath())
             .putString(KEY_CLONE_LABEL, target.label)
             .apply();
-        // The files-dir URI needs its own persisted permission (it is not the tree root).
-        try {
-            getContentResolver().takePersistableUriPermission(target.filesDir.getUri(),
-                Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        } catch (Exception ignored) { }
         addActivityLog("Clone aktif: " + target.label + " — target AUTH diarahkan ke clone.");
         updateStatus("✓ Clone aktif: " + target.label + " — AUTH target = clone ini.");
     }
@@ -2606,7 +2630,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** EXPORT TAR: packs assetpacks/ + SaveData/ from the active clone into a .tar file. */
     private void exportTar() {
-        DocumentFile filesDir = getTree(KEY_CLONE_FILES_DIR);
+        DocumentFile filesDir = getCloneFilesDir();
         if (!validDir(filesDir)) {
             showInfoDialog("EXPORT TAR", "Pilih clone dulu lewat PILIH CLONE, supaya eVault tahu folder data game-nya.");
             return;
@@ -2621,7 +2645,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** Writes the .tar (streamed, off the UI thread). Returns a status line. */
     private String exportTarToUri(Uri uri) {
-        DocumentFile filesDir = getTree(KEY_CLONE_FILES_DIR);
+        DocumentFile filesDir = getCloneFilesDir();
         if (!validDir(filesDir)) return "EXPORT TAR gagal: folder data clone tidak ditemukan. Ulangi PILIH CLONE.";
         long started = System.currentTimeMillis();
         TarCounter counter = new TarCounter();
