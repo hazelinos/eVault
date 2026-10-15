@@ -2,17 +2,19 @@
 
 All notable changes to eVault are documented here.
 
-## [1.3.8] — 2026-10-15
+## [1.3.8] — 2026-10-15 (revised same day)
 
 ### Clone flow
 
-- **PILIH CLONE** — eVault detects installed cloner apps (Mochi Cloner, Dual Space, Parallel Space, …) and auto-resolves the clone's AUTH target folder (`SaveData/AUTH/`). The cloner data folder is granted once via SAF; clone discovery is automatic afterwards. All AUTH operations (SWITCH, SIMPAN, AUTO LOGIN, HAPUS DATA, BUAT BARU) work against the clone unchanged.
+- **PILIH CLONE** — eVault auto-detects clone data on shared storage (internal storage / external SD card), like Root Explorer: with All Files Access granted once, it scans every storage volume for folders containing `SaveData/AUTH/online_user_id_data.dat` and lets the user pick the clone. No folder picker, no root, no Shizuku. All AUTH operations (SWITCH, SIMPAN, AUTO LOGIN, HAPUS DATA, BUAT BARU) work against the clone unchanged.
 - **EXPORT TAR** — packs the active clone's game data (`assetpacks/` + `SaveData/`) into a KONAMI.TAR-style `.tar` file for backup/transfer into another clone. Streamed, so a ~2 GB export never holds file contents in memory. The tar contains game data only — no AUTH file.
 - Launch behaviour is unchanged: MASUK EFOOTBALL still launches the selected game package.
+- Limitation (honest): clone data inside a cloner's private storage (`/data/data/...`) cannot be reached by any non-root app, so eVault only lists clones whose data is on shared storage.
 
 ### Maintenance
 
 - Bumped Android version from **1.3.7** to **1.3.8** (version code 29 → 30).
+- v1.3.8 was revised the same day: the first clone-flow build used a SAF folder grant; it was replaced with All Files Access + fully automatic volume scanning (no folder picker). Same version, fixed APK.
 
 ## [1.3.7] — 2026-10-04
 

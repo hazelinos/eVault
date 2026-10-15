@@ -1,219 +1,148 @@
 package id.feezet.efauth;
 
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import androidx.documentfile.provider.DocumentFile;
+import android.os.Environment;
 
+import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 /**
- * Clone detection + AUTH-target resolution for eFootball installs that live
- * inside cloner apps (Mochi Cloner, Dual Space, Parallel Space, ...).
+ * Clone detection for eFootball installs whose data lives on shared storage
+ * (internal storage / external SD card), e.g. Mochi Cloner clones.
  *
- * <p>Clones do NOT appear as separate installed packages: they run inside the
- * cloner app's virtual space. So eVault cannot find them through
- * PackageManager alone. Instead it:</p>
- * <ol>
- *   <li>detects which cloner apps are installed (label heuristics + a small
- *       list of known cloner package ids),</li>
- *   <li>scans the cloner's data root (granted once via SAF) for directories
- *       that contain {@code SaveData/AUTH/online_user_id_data.dat},</li>
- *   <li>uses the found {@code SaveData/AUTH/} folder as the AUTH target, so
- *       every existing AUTH operation (SWITCH, SIMPAN, AUTO LOGIN, ...)
- *       works against the clone unchanged.</li>
- * </ol>
+ * <p>How it works, mirroring Root Explorer: eVault holds All Files Access
+ * (MANAGE_EXTERNAL_STORAGE), enumerates every storage volume, and scans for
+ * folders that contain {@code SaveData/AUTH/online_user_id_data.dat}. No
+ * folder picker, no SAF grant, no root, no Shizuku — the scan is fully
+ * automatic, exactly like a file manager listing the SD card.</p>
  *
- * <p>No cloner data location is ever hardcoded: the data root comes from the
- * user's one-time SAF grant, and clone folders are discovered by scanning
- * for the AUTH file. Launch behaviour is intentionally untouched — the
- * "MASUK EFOOTBALL" button keeps launching the selected game package.</p>
+ * <p>What this deliberately does NOT cover: clone data inside a cloner's
+ * private storage ({@code /data/data/...}), which Android blocks for every
+ * non-root app. If a clone's data is not on shared storage, it cannot be
+ * found by this scan and eVault says so instead of failing silently.</p>
  */
 public class CloneResolver {
 
     /** The account file that identifies an eFootball data folder. */
     public static final String AUTH_FILE = "online_user_id_data.dat";
 
-    /** Cloner package ids this code is sure about. Label heuristics cover the rest. */
-    private static final Set<String> KNOWN_CLONER_PACKAGES = new HashSet<>(Arrays.asList(
-            "com.lbe.parallel.intl",    // Parallel Space
-            "com.lbe.parallel.intl64",  // Parallel Space 64-bit
-            "com.ludashi.dualspace"    // Dual Space
-    ));
-
-    /** Lowercase label fragments that identify a cloner app. */
-    private static final String[] CLONER_LABEL_HINTS = {
-            "mochi",
-            "parallel space",
-            "dual space",
-            "dualspace",
-            "clone",
-            "multi parallel",
-            "2accounts",
-            "super clone",
-            "clone master",
-            "multi app",
-            "app cloner"
-    };
-
-    /** Max directory depth scanned below the cloner's data root. */
+    /** Max directory depth scanned below each storage volume root. */
     private static final int MAX_SCAN_DEPTH = 5;
 
     /** Max directories visited per scan, so a huge tree cannot hang the UI. */
-    private static final int MAX_SCAN_DIRS = 3000;
-
-    /** One installed cloner app. */
-    public static class ClonerApp {
-        public final String packageName;
-        public final String label;
-
-        public ClonerApp(String packageName, String label) {
-            this.packageName = packageName;
-            this.label = label;
-        }
-    }
+    private static final int MAX_SCAN_DIRS = 5000;
 
     /** One discovered clone: its AUTH dir, its game-data dir, and a display label. */
     public static class CloneTarget {
         /** The {@code SaveData/AUTH/} folder: becomes eVault's AUTH target. */
-        public final DocumentFile authDir;
+        public final File authDir;
         /** The game-data {@code files/} folder (holds {@code assetpacks/} + {@code SaveData/}). */
-        public final DocumentFile filesDir;
+        public final File filesDir;
         public final String label;
 
-        public CloneTarget(DocumentFile authDir, DocumentFile filesDir, String label) {
+        public CloneTarget(File authDir, File filesDir, String label) {
             this.authDir = authDir;
             this.filesDir = filesDir;
             this.label = label;
         }
     }
 
-    /** Lists installed apps that look like cloners. Never returns null. */
-    public static List<ClonerApp> detectCloners(Context ctx) {
-        ArrayList<ClonerApp> result = new ArrayList<>();
-        List<ApplicationInfo> apps;
-        try {
-            apps = ctx.getPackageManager().getInstalledApplications(0);
-        } catch (Exception e) {
-            return result;
-        }
-        String self = ctx.getPackageName();
-        for (ApplicationInfo app : apps) {
-            if (app == null || app.packageName == null) continue;
-            if (app.packageName.equals(self)) continue;
-            String label;
-            try {
-                label = String.valueOf(ctx.getPackageManager().getApplicationLabel(app));
-            } catch (Exception e) {
-                label = app.packageName;
-            }
-            if (isCloner(app.packageName, label)) {
-                result.add(new ClonerApp(app.packageName, label));
+    /**
+     * Lists storage volume roots: primary shared storage plus every mounted
+     * volume (e.g. an external SD card), derived from
+     * {@code getExternalFilesDirs()} by walking up from
+     * {@code <volume>/Android/data/<pkg>/files}. Never returns null.
+     */
+    public static List<File> listStorageRoots(Context ctx) {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        ArrayList<File> roots = new ArrayList<>();
+        addRoot(roots, seen, Environment.getExternalStorageDirectory());
+        File[] dirs = ctx.getExternalFilesDirs(null);
+        if (dirs != null) {
+            for (File d : dirs) {
+                if (d == null) continue;
+                File vol = d;
+                for (int i = 0; i < 4 && vol != null; i++) vol = vol.getParentFile();
+                addRoot(roots, seen, vol);
             }
         }
-        result.sort((a, b) -> a.label.compareToIgnoreCase(b.label));
-        return result;
+        return roots;
     }
 
-    /** Lists ALL installed launchable apps (for the "APP LAIN…" fallback). */
-    public static List<ClonerApp> listAllApps(Context ctx) {
-        ArrayList<ClonerApp> result = new ArrayList<>();
-        PackageManager pm = ctx.getPackageManager();
-        List<ApplicationInfo> apps;
+    private static void addRoot(List<File> roots, LinkedHashSet<String> seen, File root) {
+        if (root == null) return;
         try {
-            apps = pm.getInstalledApplications(0);
-        } catch (Exception e) {
-            return result;
-        }
-        String self = ctx.getPackageName();
-        for (ApplicationInfo app : apps) {
-            if (app == null || app.packageName == null) continue;
-            if (app.packageName.equals(self)) continue;
-            if (pm.getLaunchIntentForPackage(app.packageName) == null) continue;
-            String label;
-            try {
-                label = String.valueOf(pm.getApplicationLabel(app));
-            } catch (Exception e) {
-                label = app.packageName;
-            }
-            result.add(new ClonerApp(app.packageName, label));
-        }
-        result.sort((a, b) -> a.label.compareToIgnoreCase(b.label));
-        return result;
-    }
-
-    private static boolean isCloner(String pkg, String label) {
-        if (KNOWN_CLONER_PACKAGES.contains(pkg)) return true;
-        String l = label == null ? "" : label.toLowerCase(Locale.ROOT);
-        for (String hint : CLONER_LABEL_HINTS) {
-            if (l.contains(hint)) return true;
-        }
-        return false;
+            File canonical = root.getCanonicalFile();
+            if (!canonical.isDirectory()) return;
+            if (seen.add(canonical.getAbsolutePath())) roots.add(canonical);
+        } catch (Exception ignored) { }
     }
 
     /**
-     * Scans a cloner data root for clone targets. A target is any folder
-     * whose {@code SaveData/AUTH/online_user_id_data.dat} exists. The scan
-     * is depth-limited and capped so it cannot hang on a huge tree.
+     * Scans storage roots for clone targets. A target is any folder whose
+     * {@code SaveData/AUTH/online_user_id_data.dat} exists. The scan is
+     * depth-limited and capped so it cannot hang on a huge tree.
      * Never returns null.
      */
-    public static List<CloneTarget> findCloneTargets(DocumentFile root) {
+    public static List<CloneTarget> findCloneTargets(List<File> roots) {
         ArrayList<CloneTarget> out = new ArrayList<>();
-        if (root == null) return out;
+        if (roots == null) return out;
         int[] visited = new int[]{0};
-        scanDir(root, null, MAX_SCAN_DEPTH, visited, out);
+        for (File root : roots) {
+            scanDir(root, root, MAX_SCAN_DEPTH, visited, out);
+        }
         return out;
     }
 
-    private static void scanDir(DocumentFile dir, DocumentFile parent, int depthLeft,
+    private static void scanDir(File dir, File volumeRoot, int depthLeft,
                                 int[] visited, List<CloneTarget> out) {
         if (dir == null || depthLeft < 0 || visited[0] > MAX_SCAN_DIRS) return;
         visited[0]++;
-        String name = dir.getName();
-        if ("SaveData".equalsIgnoreCase(name)) {
-            DocumentFile auth = safeFind(dir, "AUTH");
-            if (auth != null && auth.isDirectory()) {
-                DocumentFile dat = safeFind(auth, AUTH_FILE);
-                if (dat != null && dat.isFile() && parent != null) {
-                    out.add(new CloneTarget(auth, parent, labelFor(parent)));
-                    return; // do not descend into a matched SaveData folder
+        if ("SaveData".equalsIgnoreCase(dir.getName())) {
+            File auth = new File(dir, "AUTH");
+            File dat = new File(auth, AUTH_FILE);
+            if (auth.isDirectory() && dat.isFile()) {
+                File filesDir = dir.getParentFile();
+                if (filesDir != null) {
+                    out.add(new CloneTarget(auth, filesDir, labelFor(volumeRoot, filesDir)));
                 }
+                return; // do not descend into a matched SaveData folder
             }
         }
         if (depthLeft == 0) return;
-        for (DocumentFile child : safeList(dir)) {
-            if (child.isDirectory()) {
-                scanDir(child, dir, depthLeft - 1, visited, out);
+        File[] children;
+        try {
+            children = dir.listFiles();
+        } catch (Exception e) {
+            return;
+        }
+        if (children == null) return;
+        for (File child : children) {
+            if (!child.isDirectory()) continue;
+            String n = child.getName();
+            if (n.startsWith(".")) continue;
+            // Other apps' Android/data stays blocked even with All Files Access.
+            if ("Android".equals(n)) continue;
+            scanDir(child, volumeRoot, depthLeft - 1, visited, out);
+        }
+    }
+
+    private static String labelFor(File volumeRoot, File filesDir) {
+        String volume = "Internal";
+        try {
+            String primary = Environment.getExternalStorageDirectory().getCanonicalFile().getAbsolutePath();
+            if (!volumeRoot.getCanonicalFile().getAbsolutePath().equals(primary)) {
+                volume = "SD " + volumeRoot.getName();
             }
-        }
-    }
-
-    private static String labelFor(DocumentFile filesDir) {
-        String name = filesDir.getName();
-        return (name == null || name.isEmpty()) ? "Clone" : name;
-    }
-
-    private static DocumentFile safeFind(DocumentFile parent, String name) {
+        } catch (Exception ignored) { }
+        String rel = filesDir.getAbsolutePath();
         try {
-            return parent.findFile(name);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private static DocumentFile[] safeList(DocumentFile dir) {
-        if (dir == null) return new DocumentFile[0];
-        try {
-            if (!dir.isDirectory()) return new DocumentFile[0];
-            DocumentFile[] children = dir.listFiles();
-            return children == null ? new DocumentFile[0] : children;
-        } catch (Exception e) {
-            return new DocumentFile[0];
-        }
+            String rootPath = volumeRoot.getCanonicalFile().getAbsolutePath();
+            if (rel.startsWith(rootPath)) rel = rel.substring(rootPath.length());
+        } catch (Exception ignored) { }
+        if (rel.startsWith("/")) rel = rel.substring(1);
+        return volume + ": " + rel;
     }
 }
