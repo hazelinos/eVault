@@ -79,7 +79,7 @@ jobs:
 
           - Detects the ids.patch package family.
           - Excludes the official Konami package jp.konami.pesam from clone selection.
-          - Restores a clone picker for MASUK EFOOTBALL and remembers the selected clone.
+          - Adds automatic clone detection and a clone selector inside Setup; MASUK EFOOTBALL opens the saved selection directly.
           - Declares launcher-intent package visibility for Android 11+.
 
           Includes everything from v1.3.8.
