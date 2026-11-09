@@ -2471,7 +2471,7 @@ public class MainActivity extends AppCompatActivity {
                 appLabel=String.valueOf(getPackageManager().getApplicationLabel(
                         getPackageManager().getApplicationInfo(pkg,0)));
             }catch(Exception ignored){}
-            labels[n]=(pkg.equals(selected) ? "✓ " : "")+appLabel+"\\n"+pkg;
+            labels[n]=(pkg.equals(selected) ? "✓ " : "")+appLabel+"\n"+pkg;
         }
         new AlertDialog.Builder(this)
             .setTitle("PILIH EFOOTBALL CLONE")
@@ -2492,7 +2492,7 @@ public class MainActivity extends AppCompatActivity {
         ArrayList<String> clones=installedClonePackages();
         String selected=gamePackage();
         if(selected==null){
-            gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\\nBelum ada clone yang dipilih.");
+            gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\nBelum ada clone yang dipilih.");
             return;
         }
         String label=selected;
@@ -2500,7 +2500,7 @@ public class MainActivity extends AppCompatActivity {
             label=String.valueOf(getPackageManager().getApplicationLabel(
                     getPackageManager().getApplicationInfo(selected,0)));
         }catch(Exception ignored){}
-        gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\\nDipilih: "+label+" ("+selected+")");
+        gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\nDipilih: "+label+" ("+selected+")");
     }
 
     private boolean launchGame(){
