@@ -2,7 +2,7 @@
 
 All notable changes to eVault are documented here.
 
-## [1.3.8] — 2026-10-15 (revised twice same day)
+## [1.3.9] — 2026-11-09\n\n### Clone detection and selection\n\n- Added Android launcher-intent package visibility so installed game launchers can be discovered on Android 11+.\n- Recognizes the `ids.patch` package family in addition to `idsphone` and `idspatch`.\n- Excludes the official Konami package `jp.konami.pesam` as well as the legacy `epl.idsphone` package from clone selection.\n- Restored a clone picker for the manual **MASUK EFOOTBALL** action; the selected clone is remembered and reused by Create Account and Auto Login.\n- Bumped Android version code from **30** to **31**.\n\n## [1.3.8] — 2026-10-15 (revised twice same day)
 
 ### What 1.3.8 ended up as
 
