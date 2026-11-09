@@ -49,9 +49,9 @@ jobs:
       - name: Verify release version
         shell: bash
         run: |
-          grep -q 'versionCode = 30' app/build.gradle.kts
-          grep -q 'versionName = "1.3.8"' app/build.gradle.kts
-          echo 'Version verified: 1.3.8 (30)'
+          grep -q 'versionCode = 31' app/build.gradle.kts
+          grep -q 'versionName = "1.3.9"' app/build.gradle.kts
+          echo 'Version verified: 1.3.9 (31)'
 
       - name: Build installable APK
         run: ./gradlew assembleDebug --stacktrace
@@ -60,13 +60,13 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.3.8.apk
+          cp "$apk" eVault-v1.3.9.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.3.8
-          path: eVault-v1.3.8.apk
+          name: eVault-v1.3.9
+          path: eVault-v1.3.9.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -75,20 +75,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(cat <<'EOF'
-          No more pickers: PILIH CLONE, PILIH GAME, and EXPORT TAR removed.
+          Clone detection fix and multi-clone selection.
 
-          - MASUK EFOOTBALL now auto-detects the eFootball clone: it
-            launches the first installed eFootball package that is NOT
-            the original (epl.idsphone). No picker, no manual package
-            input, and deliberately no epl.idsphone fallback. Detection
-            recognizes the "ids" package family (ucl.idsphone, idspatch, ...).
+          - Detects the ids.patch package family.
+          - Excludes the official Konami package jp.konami.pesam from clone selection.
+          - Restores a clone picker for MASUK EFOOTBALL and remembers the selected clone.
+          - Declares launcher-intent package visibility for Android 11+.
 
-          Includes everything from v1.3.7.
+          Includes everything from v1.3.8.
           EOF
           )
-          if gh release view v1.3.8 >/dev/null 2>&1; then
-            gh release edit v1.3.8 --title "eVault v1.3.8" --notes "$NOTES" --latest
+          if gh release view v1.3.9 >/dev/null 2>&1; then
+            gh release edit v1.3.9 --title "eVault v1.3.9" --notes "$NOTES" --latest
           else
-            gh release create v1.3.8 --title "eVault v1.3.8" --notes "$NOTES" --latest
+            gh release create v1.3.9 --title "eVault v1.3.9" --notes "$NOTES" --latest
           fi
-          gh release upload v1.3.8 eVault-v1.3.8.apk --clobber
+          gh release upload v1.3.9 eVault-v1.3.9.apk --clobber
