@@ -112,6 +112,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String MODE_CREATE = "create";
     /** The original eFootball package: excluded from clone auto-detect (never the default). */
     private static final String ORIGINAL_GAME_PACKAGE = "epl.idsphone";
+    private static final String OFFICIAL_GAME_PACKAGE = "jp.konami.pesam";
+    private static final String KEY_GAME_PACKAGE = "selected_game_package";
     // ---- AUTH target: SAF (manual folder) or a plain file path (set by an earlier clone build) ----
     private static final String KEY_TARGET_MODE = "target_mode";
     private static final String MODE_SAF = "saf";
@@ -442,7 +444,7 @@ public class MainActivity extends AppCompatActivity {
         Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> {
             teardownAutoLogin();
             clearWorkflow();
-            launchGame();
+            showGamePicker();
         });
         row3.addView(enterBtn, weightLp(dp(8), 1));
 
@@ -2399,23 +2401,64 @@ public class MainActivity extends AppCompatActivity {
         return streamInto(source, dest, "wt");
     }
     /**
-     * The eFootball clone package, auto-detected: the first installed
-     * eFootball package that is NOT the original. Sorted so the result is
-     * stable when several clones exist. Returns null when no clone is
-     * installed — there is deliberately no epl.idsphone fallback.
+     * Lists installed eFootball clones. The official Konami app and the legacy
+     * epl.idsphone package are excluded from clone selection.
      */
-    private String gamePackage(){
-        Intent main=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<android.content.pm.ResolveInfo> apps=getPackageManager().queryIntentActivities(main,0);
+    private ArrayList<String> installedClonePackages(){
+        Intent mainIntent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<android.content.pm.ResolveInfo> apps=getPackageManager().queryIntentActivities(mainIntent,0);
         ArrayList<String> clones=new ArrayList<>();
         for(android.content.pm.ResolveInfo ri:apps){
+            if(ri.activityInfo==null) continue;
             String pn=ri.activityInfo.packageName;
             String label=String.valueOf(ri.loadLabel(getPackageManager()));
-            if(!ORIGINAL_GAME_PACKAGE.equals(pn)&&isEfootballPackage(pn,label)&&!clones.contains(pn))clones.add(pn);
+            if(!OFFICIAL_GAME_PACKAGE.equals(pn)
+                    && !ORIGINAL_GAME_PACKAGE.equals(pn)
+                    && isEfootballPackage(pn,label)
+                    && !clones.contains(pn)){
+                clones.add(pn);
+            }
         }
-        if(clones.isEmpty())return null;
         Collections.sort(clones);
-        return clones.get(0);
+        return clones;
+    }
+
+    /** Uses the user's last selection, falling back to the first detected clone. */
+    private String gamePackage(){
+        ArrayList<String> clones=installedClonePackages();
+        String selected=prefs.getString(KEY_GAME_PACKAGE,"");
+        if(!selected.isEmpty() && clones.contains(selected)) return selected;
+        return clones.isEmpty()?null:clones.get(0);
+    }
+
+    /** Manual game entry always lets the user choose when multiple clones are installed. */
+    private void showGamePicker(){
+        ArrayList<String> clones=installedClonePackages();
+        if(clones.isEmpty()){
+            addActivityLog("Gagal membuka eFootball: clone tidak ditemukan.");
+            updateStatus("Clone eFootball tidak ditemukan. Pastikan clone terpasang dan punya ikon launcher.");
+            return;
+        }
+        String[] labels=new String[clones.size()];
+        for(int n=0;n<clones.size();n++){
+            String pkg=clones.get(n);
+            try{
+                CharSequence label=getPackageManager().getApplicationLabel(
+                        getPackageManager().getApplicationInfo(pkg,0));
+                labels[n]=label+"\n"+pkg;
+            }catch(Exception e){
+                labels[n]=pkg;
+            }
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("PILIH EFOOTBALL CLONE")
+            .setItems(labels,(dialog,which)->{
+                String pkg=clones.get(which);
+                prefs.edit().putString(KEY_GAME_PACKAGE,pkg).apply();
+                launchGame(pkg);
+            })
+            .setNegativeButton("BATAL",null)
+            .show();
     }
 
     private boolean launchGame(){
@@ -2425,35 +2468,36 @@ public class MainActivity extends AppCompatActivity {
             updateStatus("Clone eFootball tidak ditemukan.");
             return false;
         }
+        return launchGame(pkg);
+    }
+
+    private boolean launchGame(String pkg){
         Intent i=getPackageManager().getLaunchIntentForPackage(pkg);
         if(i==null){
             addActivityLog("Gagal membuka eFootball: package " + pkg + " tidak ditemukan.");
             updateStatus("Package "+pkg+" tidak ditemukan.");
             return false;
         }
-        try {
+        try{
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
             addActivityLog("Berhasil membuka eFootball ("+pkg+").");
+            updateStatus("Membuka eFootball: "+pkg);
             return true;
-        } catch(Exception e) {
+        }catch(Exception e){
             addActivityLog("Gagal membuka eFootball: " + e.getClass().getSimpleName());
             updateStatus("Gagal membuka eFootball.");
             return false;
         }
     }
 
-    /** Deteksi eFootball: label mengandung "efootball", ATAU package mengandung ciri eFootball. */
+    /** Detects eFootball clones by their visible label or known package families. */
     private boolean isEfootballPackage(String pkg,String label){
-        String p=pkg==null?"":pkg.toLowerCase();
-        String l=label==null?"":label.toLowerCase();
-        // 1) Label yang tampil di HP
+        String p=pkg==null?"":pkg.toLowerCase(Locale.ROOT);
+        String l=label==null?"":label.toLowerCase(Locale.ROOT);
         if(l.contains("efootball")) return true;
-        // 2) Package id (ciri eFootball / Konami / PES / family "ids")
-        // Clone/varian eFootball package-nya mengandung "ids": ucl.idsphone,
-        // epl.idsphone, idspatch, dst. "idsphone" sudah mencakup epl.idsphone.
         if(p.contains("idsphone")) return true;
-        if(p.contains("idspatch")) return true;
+        if(p.contains("idspatch") || p.contains("ids.patch")) return true;
         if(p.contains("konami")) return true;
         if(p.contains("efootball")) return true;
         if(p.contains("pes20")) return true;
