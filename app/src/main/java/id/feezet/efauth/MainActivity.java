@@ -122,6 +122,7 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
     private TextView status;
+    private TextView gamePackageStatus;
     private Account selectedAccount;
     private final ArrayList<Account> accounts = new ArrayList<>();
     private final ArrayList<Account> autoLoginAccounts = new ArrayList<>();
@@ -371,6 +372,24 @@ public class MainActivity extends AppCompatActivity {
         setupCard.setVisibility(View.GONE);
         setupCard.setId(View.generateViewId());
         this.setupCardId = setupCard.getId();
+        // eFootball clone detection and selection lives in Setup.
+        TextView gameLabel = new TextView(this);
+        gameLabel.setText("EFOOTBALL CLONE");
+        gameLabel.setTextSize(12);
+        gameLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        gameLabel.setTextColor(color(R.color.textSecondary));
+        setupCard.addView(gameLabel, spacedLp(dp(4)));
+
+        gamePackageStatus = new TextView(this);
+        gamePackageStatus.setTextSize(12);
+        gamePackageStatus.setTextColor(color(R.color.textSecondary));
+        gamePackageStatus.setPadding(0, dp(4), 0, dp(8));
+        setupCard.addView(gamePackageStatus, fullLp());
+
+        Button chooseGame = secondaryButton("SCAN & PILIH CLONE", v -> showGamePicker());
+        setupCard.addView(chooseGame, fullLp());
+        refreshGamePackageStatus();
+
         // Setup actions: 2 rows x 2 columns.
         LinearLayout setupRow1 = new LinearLayout(this);
         setupRow1.setOrientation(LinearLayout.HORIZONTAL);
@@ -444,7 +463,7 @@ public class MainActivity extends AppCompatActivity {
         Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> {
             teardownAutoLogin();
             clearWorkflow();
-            showGamePicker();
+            launchGame();
         });
         row3.addView(enterBtn, weightLp(dp(8), 1));
 
@@ -947,7 +966,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleSetupVisibility() {
         View card = findViewById(setupCardId);
-        if (card != null) card.setVisibility(card.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
+        if (card != null) {
+            boolean opening = card.getVisibility() == View.GONE;
+            card.setVisibility(opening ? View.VISIBLE : View.GONE);
+            if (opening) refreshGamePackageStatus();
+        }
     }
 
     private void collectAccounts(DocumentFile categoryRoot, String categoryName) {
@@ -2423,49 +2446,68 @@ public class MainActivity extends AppCompatActivity {
         return clones;
     }
 
-    /** Uses the user's last selection, falling back to the first detected clone. */
+    /** Returns only the explicitly selected, currently installed clone. */
     private String gamePackage(){
         ArrayList<String> clones=installedClonePackages();
         String selected=prefs.getString(KEY_GAME_PACKAGE,"");
-        if(!selected.isEmpty() && clones.contains(selected)) return selected;
-        return clones.isEmpty()?null:clones.get(0);
+        return !selected.isEmpty() && clones.contains(selected) ? selected : null;
     }
 
-    /** Manual game entry always lets the user choose when multiple clones are installed. */
+    /** Shows detected clone packages from Setup and saves the selected target. */
     private void showGamePicker(){
         ArrayList<String> clones=installedClonePackages();
         if(clones.isEmpty()){
-            addActivityLog("Gagal membuka eFootball: clone tidak ditemukan.");
-            updateStatus("Clone eFootball tidak ditemukan. Pastikan clone terpasang dan punya ikon launcher.");
+            prefs.edit().remove(KEY_GAME_PACKAGE).apply();
+            refreshGamePackageStatus();
+            updateStatus("Tidak ada eFootball clone yang terdeteksi.");
             return;
         }
         String[] labels=new String[clones.size()];
+        String selected=prefs.getString(KEY_GAME_PACKAGE,"");
         for(int n=0;n<clones.size();n++){
             String pkg=clones.get(n);
+            String appLabel=pkg;
             try{
-                CharSequence label=getPackageManager().getApplicationLabel(
-                        getPackageManager().getApplicationInfo(pkg,0));
-                labels[n]=label+"\n"+pkg;
-            }catch(Exception e){
-                labels[n]=pkg;
-            }
+                appLabel=String.valueOf(getPackageManager().getApplicationLabel(
+                        getPackageManager().getApplicationInfo(pkg,0)));
+            }catch(Exception ignored){}
+            labels[n]=(pkg.equals(selected) ? "✓ " : "")+appLabel+"\\n"+pkg;
         }
         new AlertDialog.Builder(this)
             .setTitle("PILIH EFOOTBALL CLONE")
             .setItems(labels,(dialog,which)->{
                 String pkg=clones.get(which);
                 prefs.edit().putString(KEY_GAME_PACKAGE,pkg).apply();
-                launchGame(pkg);
+                refreshGamePackageStatus();
+                updateStatus("Clone eFootball dipilih: "+pkg);
+                addActivityLog("Target eFootball clone dipilih: "+pkg);
             })
-            .setNegativeButton("BATAL",null)
+            .setNegativeButton("TUTUP",null)
             .show();
+    }
+
+    /** Refreshes the selected clone and live detection count shown in Setup. */
+    private void refreshGamePackageStatus(){
+        if(gamePackageStatus==null) return;
+        ArrayList<String> clones=installedClonePackages();
+        String selected=gamePackage();
+        if(selected==null){
+            gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\\nBelum ada clone yang dipilih.");
+            return;
+        }
+        String label=selected;
+        try{
+            label=String.valueOf(getPackageManager().getApplicationLabel(
+                    getPackageManager().getApplicationInfo(selected,0)));
+        }catch(Exception ignored){}
+        gamePackageStatus.setText("Terdeteksi: "+clones.size()+" package\\nDipilih: "+label+" ("+selected+")");
     }
 
     private boolean launchGame(){
         String pkg=gamePackage();
         if(pkg==null||pkg.isEmpty()){
-            addActivityLog("Gagal membuka eFootball: clone eFootball tidak ditemukan.");
-            updateStatus("Clone eFootball tidak ditemukan.");
+            addActivityLog("Gagal membuka eFootball: clone belum dipilih di Setup.");
+            updateStatus("Pilih eFootball clone terlebih dahulu melalui Setup.");
             return false;
         }
         return launchGame(pkg);
