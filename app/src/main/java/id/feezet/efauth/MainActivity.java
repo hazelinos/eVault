@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -340,12 +342,13 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(color(R.color.bgBase));
-        root.setPadding(dp(20), dp(28), dp(20), dp(24));
+        root.setPadding(dp(20), dp(24), dp(20), dp(28));
 
         // ---- Header ----
         TextView title = new TextView(this);
         title.setText("eVault");
-        title.setTextSize(30);
+        title.setTextSize(36);
+        title.setLetterSpacing(-0.04f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.textPrimary));
         root.addView(title, fullLp());
@@ -353,23 +356,29 @@ public class MainActivity extends AppCompatActivity {
         TextView subtitle = new TextView(this);
         subtitle.setText("eFootball AUTH Manager");
         subtitle.setTextSize(13);
-        subtitle.setTextColor(color(R.color.accent));
+        subtitle.setTextColor(color(R.color.textSecondary));
         subtitle.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams subLp = fullLp();
-        subLp.bottomMargin = dp(24);
+        subLp.bottomMargin = dp(20);
         root.addView(subtitle, subLp);
 
         // ---- Setup (collapsed) ----
         TextView setupToggle = new TextView(this);
-        setupToggle.setText("⚙️ Setup");
+        setupToggle.setText("Pengaturan folder & aplikasi   ›");
         setupToggle.setTextSize(13);
-        setupToggle.setTextColor(color(R.color.textSecondary));
-        setupToggle.setPadding(0, 0, 0, dp(8));
+        setupToggle.setTextColor(color(R.color.textPrimary));
+        setupToggle.setMinHeight(dp(48));
+        setupToggle.setGravity(Gravity.CENTER_VERTICAL);
+        setupToggle.setBackground(buttonBackground(color(R.color.surface), color(R.color.divider)));
+        setupToggle.setPadding(dp(16), dp(12), dp(16), dp(12));
         setupToggle.setOnClickListener(v -> toggleSetupVisibility());
-        root.addView(setupToggle, fullLp());
+        LinearLayout.LayoutParams setupToggleLp = fullLp();
+        setupToggleLp.bottomMargin = dp(12);
+        root.addView(setupToggle, setupToggleLp);
 
         LinearLayout setupCard = card();
         setupCard.setVisibility(View.GONE);
+        setupCard.addView(sectionLabel("PENGATURAN"));
         setupCard.setId(View.generateViewId());
         this.setupCardId = setupCard.getId();
         // eFootball clone detection and selection lives in Setup.
@@ -397,7 +406,7 @@ public class MainActivity extends AppCompatActivity {
         setupRow1.addView(library, weightLp(dp(6), 0));
         Button target = secondaryButton("PILIH FOLDER AUTH", v -> chooseTree(pickTarget));
         setupRow1.addView(target, weightLp(dp(6), 1));
-        setupCard.addView(setupRow1, fullLp());
+        setupCard.addView(setupRow1, spacedLp(dp(10)));
 
         LinearLayout setupRow2 = new LinearLayout(this);
         setupRow2.setOrientation(LinearLayout.HORIZONTAL);
@@ -428,55 +437,62 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(setupCard, cardLp());
 
-        // ---- Daftar akun ----
-        Button accountListBtn = secondaryButton("DAFTAR AKUN", v -> showAccountListDialog());
-        LinearLayout.LayoutParams accountListBtnLp = fullLp();
-        accountListBtnLp.bottomMargin = dp(16);
-        root.addView(accountListBtn, accountListBtnLp);
+        // Account actions share one surface; listeners retain their existing behavior.
+        LinearLayout accountCard = card();
+        accountCard.addView(sectionLabel("AUTH LIBRARY"));
+        TextView accountHeading = new TextView(this);
+        accountHeading.setText("Kelola akunmu");
+        accountHeading.setTextSize(22);
+        accountHeading.setTypeface(Typeface.DEFAULT_BOLD);
+        accountHeading.setTextColor(color(R.color.textPrimary));
+        accountCard.addView(accountHeading, fullLp());
+        TextView accountHint = new TextView(this);
+        accountHint.setText("Pilih akun dari library untuk beralih atau menjalankan Auto Login.");
+        accountHint.setTextSize(13);
+        accountHint.setTextColor(color(R.color.textSecondary));
+        accountHint.setLineSpacing(dp(3), 1f);
+        accountCard.addView(accountHint, spacedLp(dp(6)));
 
-        // Actions row 1: SWITCH + AUTO LOGIN
-        LinearLayout row1 = new LinearLayout(this); row1.setOrientation(LinearLayout.HORIZONTAL);
-        Button switchBtn = primaryButton("SWITCH", v -> switchSelected());
-        row1.addView(switchBtn, weightLp(dp(8), 0));
-        Button autoBtn = primaryButton("AUTO LOGIN", v -> startAutoLogin());
-        row1.addView(autoBtn, weightLp(dp(8), 1));
-        LinearLayout.LayoutParams row1Lp = fullLp();
-        row1Lp.bottomMargin = dp(8);
-        root.addView(row1, row1Lp);
+        Button accountListBtn = secondaryButton("Daftar akun   ›", v -> showAccountListDialog());
+        accountCard.addView(accountListBtn, spacedLp(dp(18)));
 
-        // Actions row 2: HAPUS DATA + BUAT BARU
-        LinearLayout row2 = new LinearLayout(this); row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button deleteDataBtn = dangerButton("HAPUS DATA", v -> showDeleteDataConfirmDialog());
-        row2.addView(deleteDataBtn, weightLp(dp(8), 0));
-        Button createBtn = secondaryButton("BUAT BARU", v -> showCreateDialog());
-        row2.addView(createBtn, weightLp(dp(8), 1));
-        LinearLayout.LayoutParams row2Lp = fullLp();
-        row2Lp.bottomMargin = dp(16);
-        root.addView(row2, row2Lp);
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        Button switchBtn = primaryButton("Switch", v -> switchSelected());
+        row1.addView(switchBtn, weightLp(dp(5), 0));
+        Button autoBtn = secondaryButton("Auto Login", v -> startAutoLogin());
+        row1.addView(autoBtn, weightLp(dp(5), 1));
+        accountCard.addView(row1, spacedLp(dp(10)));
+        root.addView(accountCard, cardLp());
 
-        // Actions row 3: SIMPAN AUTH + MASUK EFOOTBALL
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        Button saveAuthBtn = primaryButton("SIMPAN AUTH", v -> showSaveAuthDialog());
-        row3.addView(saveAuthBtn, weightLp(dp(8), 0));
+        LinearLayout manageCard = card();
+        manageCard.addView(sectionLabel("PENGELOLAAN AUTH"));
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        Button createBtn = secondaryButton("Buat baru", v -> showCreateDialog());
+        row2.addView(createBtn, weightLp(dp(5), 0));
+        Button saveAuthBtn = secondaryButton("Simpan AUTH", v -> showSaveAuthDialog());
+        row2.addView(saveAuthBtn, weightLp(dp(5), 1));
+        manageCard.addView(row2, fullLp());
+        Button deleteDataBtn = dangerButton("Hapus data", v -> showDeleteDataConfirmDialog());
+        manageCard.addView(deleteDataBtn, spacedLp(dp(10)));
+        root.addView(manageCard, cardLp());
 
-        Button enterBtn = primaryButton("MASUK EFOOTBALL", v -> {
+        Button enterBtn = primaryButton("Masuk eFootball   →", v -> {
             teardownAutoLogin();
             clearWorkflow();
             launchGame();
         });
-        row3.addView(enterBtn, weightLp(dp(8), 1));
-
-        LinearLayout.LayoutParams row3Lp = fullLp();
-        row3Lp.bottomMargin = dp(16);
-        root.addView(row3, row3Lp);
+        root.addView(enterBtn, fullLp());
 
         // ---- Status ----
         status = new TextView(this);
-        status.setText("Siap.");
+        status.setText("Siap digunakan.");
         status.setTextColor(color(R.color.textSecondary));
         status.setTextSize(12);
         status.setGravity(Gravity.CENTER);
+        status.setPadding(dp(14), dp(12), dp(14), dp(12));
+        status.setBackground(makeDrawable(color(R.color.surface), dp(14)));
         LinearLayout.LayoutParams statusLp = fullLp();
         statusLp.topMargin = dp(16);
         root.addView(status, statusLp);
@@ -528,10 +544,10 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(color(R.color.bgBase));
-        root.setPadding(dp(20), dp(28), dp(20), dp(24));
+        root.setPadding(dp(20), dp(24), dp(20), dp(28));
 
         TextView title = new TextView(this);
-        title.setText("AUTO LOGIN");
+        title.setText("Auto Login");
         title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(color(R.color.textPrimary));
@@ -542,7 +558,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout cardBox = card();
 
         alProgressCount = new TextView(this);
-        alProgressCount.setTextSize(22);
+        alProgressCount.setTextSize(32);
         alProgressCount.setTypeface(Typeface.DEFAULT_BOLD);
         alProgressCount.setTextColor(color(R.color.textPrimary));
         alProgressCount.setGravity(Gravity.CENTER);
@@ -618,7 +634,7 @@ public class MainActivity extends AppCompatActivity {
         tv.setTextColor(color(R.color.textSecondary));
         tv.setTag(label);
         LinearLayout.LayoutParams lp = fullLp();
-        lp.topMargin = dp(6);
+        lp.topMargin = dp(10);
         parent.addView(tv, lp);
         return tv;
     }
@@ -652,8 +668,8 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(8)));
-        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.divider), dp(22)));
+        c.setPadding(dp(18), dp(20), dp(18), dp(20));
         return c;
     }
 
@@ -679,39 +695,48 @@ public class MainActivity extends AppCompatActivity {
     private Button baseButton(String text, View.OnClickListener listener) {
         Button b = new Button(this);
         b.setText(text);
-        b.setAllCaps(true);
+        b.setAllCaps(false);
         b.setTextSize(13);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setStateListAnimator(null);
-        b.setMinHeight(dp(46));
+        b.setMinHeight(dp(52));
+        b.setMinimumWidth(0);
+        b.setMinWidth(0);
+        b.setLetterSpacing(0.01f);
         b.setPadding(dp(12), dp(10), dp(12), dp(10));
         b.setOnClickListener(listener);
         return b;
     }
 
+    private RippleDrawable buttonBackground(int fill, int stroke) {
+        return new RippleDrawable(ColorStateList.valueOf(0x26FFFFFF),
+                makeDrawableWithStroke(fill, stroke, dp(14)),
+                makeDrawable(Color.WHITE, dp(14)));
+    }
+
     private Button primaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(makeDrawable(Color.parseColor("#058CD7"), dp(6)));
-        b.setTextColor(Color.WHITE);
+        b.setBackground(buttonBackground(color(R.color.primary), color(R.color.primary)));
+        b.setTextColor(color(R.color.bgBase));
         return b;
     }
 
     private Button secondaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(makeDrawable(Color.parseColor("#552CB7"), dp(6)));
-        b.setTextColor(Color.parseColor("#F8F9FA"));
+        b.setBackground(buttonBackground(color(R.color.buttonBg), color(R.color.divider)));
+        b.setTextColor(color(R.color.textPrimary));
         return b;
     }
 
     private Button dangerButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(makeDrawable(Color.parseColor("#FD5A46"), dp(6)));
-        b.setTextColor(Color.WHITE);
+        b.setBackground(buttonBackground(color(R.color.dangerBg), color(R.color.dangerBg)));
+        b.setTextColor(color(R.color.dangerText));
         return b;
     }
 
     private void styleInput(EditText e) {
-        e.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
+        e.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(14)));
         e.setTextColor(color(R.color.textPrimary));
         e.setHintTextColor(color(R.color.textSecondary));
         e.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -1540,7 +1565,7 @@ public class MainActivity extends AppCompatActivity {
         logText.setTextColor(color(R.color.textPrimary));
         logText.setTextIsSelectable(true);
         logText.setPadding(dp(12), dp(12), dp(12), dp(12));
-        logText.setBackground(makeDrawableWithStroke(Color.parseColor("#16213E"), Color.parseColor("#2A3A5A"), dp(6)));
+        logText.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(14)));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
