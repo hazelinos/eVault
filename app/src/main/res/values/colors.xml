@@ -1,34 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Retro color palette -->
-    <color name="retroOrange">#FFC567</color>
+    <!-- Legacy color names retained for resource compatibility. -->
+    <color name="retroOrange">#65DCC6</color>
     <color name="retroPink">#FB7DA8</color>
-    <color name="retroRed">#FD5A46</color>
+    <color name="retroRed">#3A222B</color>
     <color name="retroPurple">#552CB7</color>
     <color name="retroGreen">#00995E</color>
-    <color name="retroBlue">#058CD7</color>
+    <color name="retroBlue">#65DCC6</color>
 
     <!-- Primary colors for UI -->
-    <color name="primary">#058CD7</color>
-    <color name="primaryDark">#046BA8</color>
-    <color name="accent">#FFC567</color>
+    <color name="primary">#65DCC6</color>
+    <color name="primaryDark">#36B59E</color>
+    <color name="accent">#65DCC6</color>
     
     <!-- Dark surfaces (keep dark for contrast) -->
-    <color name="bgBase">#1A1A2E</color>
-    <color name="surface">#16213E</color>
-    <color name="surfaceElevated">#0F3460</color>
-    <color name="divider">#2A3A5A</color>
+    <color name="bgBase">#0C1218</color>
+    <color name="surface">#151F29</color>
+    <color name="surfaceElevated">#1C2A36</color>
+    <color name="divider">#2B3A47</color>
 
     <!-- Text -->
-    <color name="textPrimary">#F8F9FA</color>
-    <color name="textSecondary">#B8C5D6</color>
+    <color name="textPrimary">#F0F5F8</color>
+    <color name="textSecondary">#AABAC7</color>
 
     <!-- Button states -->
-    <color name="buttonBg">#0F3460</color>
-    <color name="dangerBg">#FD5A46</color>
-    <color name="dangerText">#FFFFFF</color>
+    <color name="buttonBg">#1C2A36</color>
+    <color name="dangerBg">#3A222B</color>
+    <color name="dangerText">#FFB4BE</color>
     <color name="successBg">#00995E</color>
 
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
 </resources>
+
