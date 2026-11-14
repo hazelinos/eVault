@@ -2,6 +2,17 @@
 
 All notable changes to eVault are documented here.
 
+## [1.4.0] — 2026-11-14
+
+### Interface refresh
+
+- Dark slate surfaces with mint accents and grouped AUTH actions.
+- Larger rounded buttons with ripple feedback and consistent Auto Login, input, and log styling.
+- Existing AUTH, clone selection, and Auto Login handlers are preserved.
+- Fixed stray literal newline escapes in AndroidManifest.xml without changing permissions.
+- Added pull-request build and lint checks with an APK artifact.
+- Android version code increased to **32**; existing application ID and signing key retained.
+
 ## [1.3.9] — 2026-11-09
 
 ### Clone detection and selection
