@@ -10,7 +10,7 @@
         <item name="android:navigationBarColor">@color/bgBase</item>
         <item name="android:textColorPrimary">@color/textPrimary</item>
         <item name="android:textColorSecondary">@color/textSecondary</item>
-        <item name="android:textColorHint">@color/textSecondary</item>
+        <item name="android:textColorHint">@color/textMuted</item>
     </style>
 </resources>
 

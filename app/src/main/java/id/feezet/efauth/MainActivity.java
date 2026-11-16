@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.content.res.ColorStateList;
@@ -13,11 +14,16 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -345,8 +351,17 @@ public class MainActivity extends AppCompatActivity {
         root.setPadding(dp(20), dp(24), dp(20), dp(28));
 
         // ---- Header ----
+        // Carbon Lime accent bar above the wordmark.
+        View accentBar = new View(this);
+        accentBar.setBackground(primaryGradientDrawable(dp(3)));
+        LinearLayout.LayoutParams accentBarLp = new LinearLayout.LayoutParams(dp(36), dp(5));
+        accentBarLp.bottomMargin = dp(12);
+        root.addView(accentBar, accentBarLp);
+
         TextView title = new TextView(this);
-        title.setText("eVault");
+        SpannableString titleText = new SpannableString("eVault");
+        titleText.setSpan(new ForegroundColorSpan(color(R.color.primary)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        title.setText(titleText);
         title.setTextSize(36);
         title.setLetterSpacing(-0.04f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -464,6 +479,7 @@ public class MainActivity extends AppCompatActivity {
         row1.addView(autoBtn, weightLp(dp(5), 1));
         accountCard.addView(row1, spacedLp(dp(10)));
         root.addView(accountCard, cardLp());
+        animateIn(accountCard, 0);
 
         LinearLayout manageCard = card();
         manageCard.addView(sectionLabel("PENGELOLAAN AUTH"));
@@ -477,13 +493,18 @@ public class MainActivity extends AppCompatActivity {
         Button deleteDataBtn = dangerButton("Hapus data", v -> showDeleteDataConfirmDialog());
         manageCard.addView(deleteDataBtn, spacedLp(dp(10)));
         root.addView(manageCard, cardLp());
+        animateIn(manageCard, 1);
 
         Button enterBtn = primaryButton("Masuk eFootball   →", v -> {
             teardownAutoLogin();
             clearWorkflow();
             launchGame();
         });
+        enterBtn.setTextSize(17);
+        enterBtn.setMinHeight(dp(64));
+        enterBtn.setPadding(dp(16), dp(16), dp(16), dp(16));
         root.addView(enterBtn, fullLp());
+        animateIn(enterBtn, 2);
 
         // ---- Status ----
         status = new TextView(this);
@@ -668,9 +689,56 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.divider), dp(22)));
-        c.setPadding(dp(18), dp(20), dp(18), dp(20));
+        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.divider), dp(26)));
+        c.setPadding(dp(20), dp(22), dp(20), dp(22));
         return c;
+    }
+
+    /** Carbon Lime gradient (primary -> success green), rounded. */
+    private GradientDrawable primaryGradientDrawable(int cornerRadius) {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{color(R.color.primaryGradientStart), color(R.color.primaryGradientEnd)});
+        drawable.setShape(GradientDrawable.RECTANGLE);
+        drawable.setCornerRadius(cornerRadius);
+        return drawable;
+    }
+
+    private RippleDrawable primaryButtonBackground() {
+        return new RippleDrawable(ColorStateList.valueOf(0x26000000),
+                primaryGradientDrawable(dp(18)),
+                makeDrawable(Color.WHITE, dp(18)));
+    }
+
+    /** Bencho-style press feedback: shrink slightly while pressed, spring back on release. */
+    private void attachPressScale(View v) {
+        v.setOnTouchListener((view, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    view.animate().scaleX(0.97f).scaleY(0.97f)
+                            .setDuration(90).setInterpolator(new DecelerateInterpolator()).start();
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1f).scaleY(1f)
+                            .setDuration(160).setInterpolator(new DecelerateInterpolator()).start();
+                    break;
+                default:
+                    break;
+            }
+            return false; // never consume: click + ripple keep working
+        });
+    }
+
+    /** Staggered fade + slide-in used by the main-screen cards and hero button. */
+    private void animateIn(View v, int index) {
+        v.setAlpha(0f);
+        v.setTranslationY(dp(12));
+        v.animate().alpha(1f).translationY(0f)
+                .setStartDelay(index * 70L)
+                .setDuration(320)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
     }
 
     private LinearLayout.LayoutParams cardLp() {
@@ -685,7 +753,7 @@ public class MainActivity extends AppCompatActivity {
         tv.setTextSize(11);
         tv.setLetterSpacing(0.12f);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setTextColor(color(R.color.textSecondary));
+        tv.setTextColor(color(R.color.primary));
         LinearLayout.LayoutParams lp = fullLp();
         lp.bottomMargin = dp(10);
         tv.setLayoutParams(lp);
@@ -696,28 +764,29 @@ public class MainActivity extends AppCompatActivity {
         Button b = new Button(this);
         b.setText(text);
         b.setAllCaps(false);
-        b.setTextSize(13);
+        b.setTextSize(14);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setStateListAnimator(null);
-        b.setMinHeight(dp(52));
+        b.setMinHeight(dp(56));
         b.setMinimumWidth(0);
         b.setMinWidth(0);
-        b.setLetterSpacing(0.01f);
-        b.setPadding(dp(12), dp(10), dp(12), dp(10));
+        b.setLetterSpacing(0.02f);
+        b.setPadding(dp(16), dp(12), dp(16), dp(12));
         b.setOnClickListener(listener);
+        attachPressScale(b);
         return b;
     }
 
     private RippleDrawable buttonBackground(int fill, int stroke) {
         return new RippleDrawable(ColorStateList.valueOf(0x26FFFFFF),
-                makeDrawableWithStroke(fill, stroke, dp(14)),
-                makeDrawable(Color.WHITE, dp(14)));
+                makeDrawableWithStroke(fill, stroke, dp(18)),
+                makeDrawable(Color.WHITE, dp(18)));
     }
 
     private Button primaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(buttonBackground(color(R.color.primary), color(R.color.primary)));
-        b.setTextColor(color(R.color.bgBase));
+        b.setBackground(primaryButtonBackground());
+        b.setTextColor(color(R.color.onPrimary));
         return b;
     }
 
@@ -730,16 +799,16 @@ public class MainActivity extends AppCompatActivity {
 
     private Button dangerButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
-        b.setBackground(buttonBackground(color(R.color.dangerBg), color(R.color.dangerBg)));
+        b.setBackground(buttonBackground(color(R.color.dangerBg), color(R.color.danger)));
         b.setTextColor(color(R.color.dangerText));
         return b;
     }
 
     private void styleInput(EditText e) {
-        e.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(14)));
+        e.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(16)));
         e.setTextColor(color(R.color.textPrimary));
-        e.setHintTextColor(color(R.color.textSecondary));
-        e.setPadding(dp(12), dp(12), dp(12), dp(12));
+        e.setHintTextColor(color(R.color.textMuted));
+        e.setPadding(dp(14), dp(14), dp(14), dp(14));
     }
 
     private LinearLayout.LayoutParams fullLp() { return new LinearLayout.LayoutParams(-1, -2); }
@@ -855,8 +924,8 @@ public class MainActivity extends AppCompatActivity {
         styleInput(search);
 
         ListView listView = new ListView(this);
-        listView.setDivider(null);
-        listView.setDividerHeight(0);
+        listView.setDivider(new ColorDrawable(Color.TRANSPARENT));
+        listView.setDividerHeight(dp(8));
         listView.setBackgroundColor(Color.TRANSPARENT);
         listView.setPadding(0, dp(2), 0, dp(2));
 
@@ -902,9 +971,10 @@ public class MainActivity extends AppCompatActivity {
                     header.setText("📁  " + ((String) item).toUpperCase(Locale.ROOT));
                     header.setTextSize(11);
                     header.setTypeface(Typeface.DEFAULT_BOLD);
-                    header.setTextColor(color(R.color.textSecondary));
+                    header.setLetterSpacing(0.08f);
+                    header.setTextColor(color(R.color.primary));
                     header.setGravity(Gravity.CENTER_VERTICAL);
-                    header.setPadding(dp(10), dp(8), dp(10), dp(6));
+                    header.setPadding(dp(10), dp(10), dp(10), dp(6));
                     header.setBackgroundColor(Color.TRANSPARENT);
                     return header;
                 }
@@ -913,13 +983,15 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout row = new LinearLayout(MainActivity.this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(10), 0, dp(10), 0);
-                row.setMinimumHeight(dp(44));
+                row.setBackground(makeDrawableWithStroke(
+                        color(R.color.surfaceElevated), color(R.color.divider), dp(14)));
+                row.setPadding(dp(14), dp(6), dp(14), dp(6));
+                row.setMinimumHeight(dp(56));
 
                 TextView marker = new TextView(MainActivity.this);
                 marker.setText("›");
                 marker.setTextSize(18);
-                marker.setTextColor(color(R.color.textSecondary));
+                marker.setTextColor(color(R.color.primary));
                 marker.setGravity(Gravity.CENTER);
                 row.addView(marker, new LinearLayout.LayoutParams(dp(28), dp(44)));
 
@@ -994,7 +1066,10 @@ public class MainActivity extends AppCompatActivity {
         if (card != null) {
             boolean opening = card.getVisibility() == View.GONE;
             card.setVisibility(opening ? View.VISIBLE : View.GONE);
-            if (opening) refreshGamePackageStatus();
+            if (opening) {
+                refreshGamePackageStatus();
+                animateIn(card, 0);
+            }
         }
     }
 
@@ -1850,7 +1925,16 @@ public class MainActivity extends AppCompatActivity {
         String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
         String error = prefs.getString(KEY_AL_LAST_ERROR, "");
 
-        alProgressCount.setText(done + " / " + total);
+        String countText = done + " / " + total;
+        if (!countText.equals(alProgressCount.getText().toString())) {
+            alProgressCount.setText(countText);
+            // Pulse only when the count actually changes (animation only, logic untouched).
+            alProgressCount.animate().cancel();
+            alProgressCount.setScaleX(1.10f);
+            alProgressCount.setScaleY(1.10f);
+            alProgressCount.animate().scaleX(1f).scaleY(1f)
+                    .setDuration(180).setInterpolator(new DecelerateInterpolator()).start();
+        }
         alProgressBar.setText(progressBar(percent));
         alPercent.setText(percent + "%");
         alCurrent.setText("Current: " + (current.isEmpty() ? "-" : current));
