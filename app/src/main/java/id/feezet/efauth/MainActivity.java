@@ -2769,7 +2769,6 @@ public class MainActivity extends AppCompatActivity {
         // callback checks isFinishing()/isDestroyed() before touching any view.
         uiIoExecutor.shutdownNow();
         // Release view references so a detached hierarchy is not retained.
-        status = null;
         autoLoginDelayEdit = null;
         mainScreen = null;
         autoLoginScreen = null;
