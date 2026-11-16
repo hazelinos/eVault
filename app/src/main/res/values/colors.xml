@@ -1,35 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Legacy color names retained for resource compatibility. -->
-    <color name="retroOrange">#65DCC6</color>
-    <color name="retroPink">#FB7DA8</color>
-    <color name="retroRed">#3A222B</color>
-    <color name="retroPurple">#552CB7</color>
-    <color name="retroGreen">#00995E</color>
-    <color name="retroBlue">#65DCC6</color>
+    <!-- Legacy color names retained for resource compatibility (Carbon Lime values). -->
+    <color name="retroOrange">#BFFF3C</color>
+    <color name="retroPink">#FB7185</color>
+    <color name="retroRed">#33161D</color>
+    <color name="retroPurple">#84CC16</color>
+    <color name="retroGreen">#4ADE80</color>
+    <color name="retroBlue">#BFFF3C</color>
 
-    <!-- Primary colors for UI -->
-    <color name="primary">#65DCC6</color>
-    <color name="primaryDark">#36B59E</color>
-    <color name="accent">#65DCC6</color>
-    
-    <!-- Dark surfaces (keep dark for contrast) -->
-    <color name="bgBase">#0C1218</color>
-    <color name="surface">#151F29</color>
-    <color name="surfaceElevated">#1C2A36</color>
-    <color name="divider">#2B3A47</color>
+    <!-- Primary colors for UI — Carbon Lime -->
+    <color name="primary">#BFFF3C</color>
+    <color name="primaryDark">#84CC16</color>
+    <color name="accent">#BFFF3C</color>
+    <color name="onPrimary">#111A03</color>
+    <color name="primaryGradientStart">#BFFF3C</color>
+    <color name="primaryGradientEnd">#4ADE80</color>
+
+    <!-- Dark surfaces -->
+    <color name="bgBase">#0A0A0B</color>
+    <color name="surface">#131315</color>
+    <color name="surfaceElevated">#1C1C1F</color>
+    <color name="divider">#2A2A2E</color>
 
     <!-- Text -->
-    <color name="textPrimary">#F0F5F8</color>
-    <color name="textSecondary">#AABAC7</color>
+    <color name="textPrimary">#FAFAFA</color>
+    <color name="textSecondary">#A1A1AA</color>
+    <color name="textMuted">#71717A</color>
 
     <!-- Button states -->
-    <color name="buttonBg">#1C2A36</color>
-    <color name="dangerBg">#3A222B</color>
-    <color name="dangerText">#FFB4BE</color>
-    <color name="successBg">#00995E</color>
+    <color name="buttonBg">#1C1C1F</color>
+    <color name="danger">#FB7185</color>
+    <color name="dangerBg">#33161D</color>
+    <color name="dangerText">#FDA4AF</color>
+    <color name="warning">#FACC15</color>
+    <color name="success">#4ADE80</color>
+    <color name="successBg">#1C3325</color>
 
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
 </resources>
-
