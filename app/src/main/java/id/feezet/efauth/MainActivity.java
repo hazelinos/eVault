@@ -16,6 +16,7 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.style.AbsoluteSizeSpan;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.TextWatcher;
@@ -35,6 +36,7 @@ import android.view.ViewGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 import androidx.core.content.ContextCompat;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -129,7 +131,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_TARGET_FILE = "target_file";
 
     private SharedPreferences prefs;
-    private TextView status;
     private TextView gamePackageStatus;
     private Account selectedAccount;
     private final ArrayList<Account> accounts = new ArrayList<>();
@@ -351,13 +352,6 @@ public class MainActivity extends AppCompatActivity {
         root.setPadding(dp(20), dp(24), dp(20), dp(28));
 
         // ---- Header ----
-        // Carbon Lime accent bar above the wordmark.
-        View accentBar = new View(this);
-        accentBar.setBackground(primaryGradientDrawable(dp(3)));
-        LinearLayout.LayoutParams accentBarLp = new LinearLayout.LayoutParams(dp(36), dp(5));
-        accentBarLp.bottomMargin = dp(12);
-        root.addView(accentBar, accentBarLp);
-
         TextView title = new TextView(this);
         SpannableString titleText = new SpannableString("eVault");
         titleText.setSpan(new ForegroundColorSpan(color(R.color.primary)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -379,8 +373,15 @@ public class MainActivity extends AppCompatActivity {
 
         // ---- Setup (collapsed) ----
         TextView setupToggle = new TextView(this);
-        setupToggle.setText("Pengaturan folder & aplikasi   ›");
-        setupToggle.setTextSize(13);
+        // Two-line toggle per approved mockup: bold title + lime chevron, muted subtitle below.
+        SpannableString setupText = new SpannableString("Pengaturan   ›\nFolder, clone, webhook & log");
+        setupText.setSpan(new ForegroundColorSpan(color(R.color.primary)), 13, 14, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        setupText.setSpan(new AbsoluteSizeSpan(12, true), 15, setupText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        setupText.setSpan(new ForegroundColorSpan(color(R.color.textSecondary)), 15, setupText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        setupText.setSpan(new android.text.style.StyleSpan(Typeface.NORMAL), 15, setupText.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        setupToggle.setText(setupText);
+        setupToggle.setTextSize(15);
+        setupToggle.setTypeface(Typeface.DEFAULT_BOLD);
         setupToggle.setTextColor(color(R.color.textPrimary));
         setupToggle.setMinHeight(dp(48));
         setupToggle.setGravity(Gravity.CENTER_VERTICAL);
@@ -468,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
         accountHint.setLineSpacing(dp(3), 1f);
         accountCard.addView(accountHint, spacedLp(dp(6)));
 
-        Button accountListBtn = secondaryButton("Daftar akun   ›", v -> showAccountListDialog());
+        Button accountListBtn = accountSelectorButton(v -> showAccountListDialog());
         accountCard.addView(accountListBtn, spacedLp(dp(18)));
 
         LinearLayout row1 = new LinearLayout(this);
@@ -485,17 +486,24 @@ public class MainActivity extends AppCompatActivity {
         manageCard.addView(sectionLabel("PENGELOLAAN AUTH"));
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button createBtn = secondaryButton("Buat baru", v -> showCreateDialog());
+        Button createBtn = secondaryButton("+  Buat baru", v -> showCreateDialog());
         row2.addView(createBtn, weightLp(dp(5), 0));
         Button saveAuthBtn = secondaryButton("Simpan AUTH", v -> showSaveAuthDialog());
         row2.addView(saveAuthBtn, weightLp(dp(5), 1));
         manageCard.addView(row2, fullLp());
-        Button deleteDataBtn = dangerButton("Hapus data", v -> showDeleteDataConfirmDialog());
-        manageCard.addView(deleteDataBtn, spacedLp(dp(10)));
+        // Mockup: thin divider, then Hapus data demoted to a flat text button.
+        View manageDivider = new View(this);
+        manageDivider.setBackgroundColor(color(R.color.divider));
+        LinearLayout.LayoutParams manageDividerLp = fullLp();
+        manageDividerLp.height = dp(1);
+        manageDividerLp.topMargin = dp(16);
+        manageCard.addView(manageDivider, manageDividerLp);
+        Button deleteDataBtn = textDangerButton("Hapus data", v -> showDeleteDataConfirmDialog());
+        manageCard.addView(deleteDataBtn, spacedLp(dp(4)));
         root.addView(manageCard, cardLp());
         animateIn(manageCard, 1);
 
-        Button enterBtn = primaryButton("Masuk eFootball   →", v -> {
+        Button enterBtn = heroButton("Masuk eFootball   →", v -> {
             teardownAutoLogin();
             clearWorkflow();
             launchGame();
@@ -505,18 +513,6 @@ public class MainActivity extends AppCompatActivity {
         enterBtn.setPadding(dp(16), dp(16), dp(16), dp(16));
         root.addView(enterBtn, fullLp());
         animateIn(enterBtn, 2);
-
-        // ---- Status ----
-        status = new TextView(this);
-        status.setText("Siap digunakan.");
-        status.setTextColor(color(R.color.textSecondary));
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setPadding(dp(14), dp(12), dp(14), dp(12));
-        status.setBackground(makeDrawable(color(R.color.surface), dp(14)));
-        LinearLayout.LayoutParams statusLp = fullLp();
-        statusLp.topMargin = dp(16);
-        root.addView(status, statusLp);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(color(R.color.bgBase));
@@ -753,7 +749,7 @@ public class MainActivity extends AppCompatActivity {
         tv.setTextSize(11);
         tv.setLetterSpacing(0.12f);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setTextColor(color(R.color.primary));
+        tv.setTextColor(color(R.color.textMuted));
         LinearLayout.LayoutParams lp = fullLp();
         lp.bottomMargin = dp(10);
         tv.setLayoutParams(lp);
@@ -767,7 +763,7 @@ public class MainActivity extends AppCompatActivity {
         b.setTextSize(14);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setStateListAnimator(null);
-        b.setMinHeight(dp(56));
+        b.setMinHeight(dp(52));
         b.setMinimumWidth(0);
         b.setMinWidth(0);
         b.setLetterSpacing(0.02f);
@@ -783,10 +779,56 @@ public class MainActivity extends AppCompatActivity {
                 makeDrawable(Color.WHITE, dp(18)));
     }
 
+    /** Solid lime fill (dark ripple) — the default primary treatment in layout v2. */
+    private RippleDrawable solidPrimaryBackground() {
+        return new RippleDrawable(ColorStateList.valueOf(0x26000000),
+                makeDrawableWithStroke(color(R.color.primary), color(R.color.primary), dp(18)),
+                makeDrawable(Color.WHITE, dp(18)));
+    }
+
     private Button primaryButton(String text, View.OnClickListener l) {
+        Button b = baseButton(text, l);
+        b.setBackground(solidPrimaryBackground());
+        b.setTextColor(color(R.color.onPrimary));
+        return b;
+    }
+
+    /** Gradient lime -> green is reserved for the single hero action (Masuk eFootball). */
+    private Button heroButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
         b.setBackground(primaryButtonBackground());
         b.setTextColor(color(R.color.onPrimary));
+        return b;
+    }
+
+    /**
+     * Daftar akun as a selector field (layout v2): left-aligned two-line label —
+     * small muted "BUKA DAFTAR" over bold "Daftar akun" with a lime chevron.
+     * Same click behavior as the old secondary button it replaces.
+     */
+    private Button accountSelectorButton(View.OnClickListener l) {
+        Button b = baseButton("", l);
+        SpannableString label = new SpannableString("BUKA DAFTAR\nDaftar akun   ›");
+        label.setSpan(new AbsoluteSizeSpan(10, true), 0, 11, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        label.setSpan(new ForegroundColorSpan(color(R.color.textMuted)), 0, 11, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        label.setSpan(new AbsoluteSizeSpan(16, true), 12, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        label.setSpan(new ForegroundColorSpan(color(R.color.textPrimary)), 12, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        label.setSpan(new ForegroundColorSpan(color(R.color.primary)), label.length() - 1, label.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        b.setText(label);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        b.setBackground(buttonBackground(color(R.color.surfaceElevated), color(R.color.divider)));
+        b.setTextColor(color(R.color.textPrimary));
+        b.setMinHeight(dp(56));
+        b.setPadding(dp(16), dp(10), dp(16), dp(10));
+        return b;
+    }
+
+    /** Flat danger text button (no fill/border) — used only for Hapus data on the main screen. */
+    private Button textDangerButton(String text, View.OnClickListener l) {
+        Button b = baseButton(text, l);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x26FB7185), null, null));
+        b.setTextColor(color(R.color.danger));
+        b.setMinHeight(dp(48));
         return b;
     }
 
@@ -2680,7 +2722,19 @@ public class MainActivity extends AppCompatActivity {
     private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
-    private void updateStatus(String s){if(status!=null)status.post(() -> status.setText(s));}
+    /**
+     * Layout v2 removed the permanent status line (user order) — feedback is
+     * delivered as a Toast instead so no message from the 30+ call sites is lost.
+     * Failures and "you must pick something first" prompts stay up longer.
+     * Nothing calls this during cold startup, so no toast appears on launch.
+     */
+    private void updateStatus(String s){
+        if (s == null || s.isEmpty()) return;
+        boolean important = s.contains("Gagal") || s.startsWith("Tidak")
+                || s.startsWith("Pilih") || s.startsWith("Library kosong");
+        int duration = important ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT;
+        runOnUiThread(() -> Toast.makeText(this, s, duration).show());
+    }
 
     /** Runs blocking storage work off the UI thread, then delivers the result on the UI thread. */
     private <T> void runOnIo(java.util.concurrent.Callable<T> work, java.util.function.Consumer<T> onDone){
