@@ -1,35 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Legacy color names retained for resource compatibility. -->
-    <color name="retroOrange">#65DCC6</color>
+    <color name="retroOrange">#D5F590</color>
     <color name="retroPink">#FB7DA8</color>
-    <color name="retroRed">#3A222B</color>
+    <color name="retroRed">#F5E4E1</color>
     <color name="retroPurple">#552CB7</color>
-    <color name="retroGreen">#00995E</color>
-    <color name="retroBlue">#65DCC6</color>
+    <color name="retroGreen">#526146</color>
+    <color name="retroBlue">#D5F590</color>
 
     <!-- Primary colors for UI -->
-    <color name="primary">#65DCC6</color>
-    <color name="primaryDark">#36B59E</color>
-    <color name="accent">#65DCC6</color>
+    <color name="primary">#D5F590</color>
+    <color name="primaryDark">#526146</color>
+    <color name="accent">#D5F590</color>
     
-    <!-- Dark surfaces (keep dark for contrast) -->
-    <color name="bgBase">#0C1218</color>
-    <color name="surface">#151F29</color>
-    <color name="surfaceElevated">#1C2A36</color>
-    <color name="divider">#2B3A47</color>
+    <!-- Soft light surfaces from the approved Figma concept. -->
+    <color name="bgBase">#F6F7F1</color>
+    <color name="surface">#F1ECF6</color>
+    <color name="surfaceElevated">#E5E9DD</color>
+    <color name="divider">#DDE3D5</color>
 
     <!-- Text -->
-    <color name="textPrimary">#F0F5F8</color>
-    <color name="textSecondary">#AABAC7</color>
+    <color name="textPrimary">#263123</color>
+    <color name="textSecondary">#64705E</color>
 
     <!-- Button states -->
-    <color name="buttonBg">#1C2A36</color>
-    <color name="dangerBg">#3A222B</color>
-    <color name="dangerText">#FFB4BE</color>
-    <color name="successBg">#00995E</color>
+    <color name="buttonBg">#E5E9DD</color>
+    <color name="dangerBg">#F5E4E1</color>
+    <color name="dangerText">#8C3931</color>
+    <color name="successBg">#526146</color>
 
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+    <color name="heroBg">#263123</color>
+    <color name="heroText">#F4F9EF</color>
+    <color name="heroSecondary">#CFDEBD</color>
 </resources>
 

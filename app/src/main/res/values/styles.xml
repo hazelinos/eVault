@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:colorPrimary">@color/primary</item>
@@ -11,6 +11,8 @@
         <item name="android:textColorPrimary">@color/textPrimary</item>
         <item name="android:textColorSecondary">@color/textSecondary</item>
         <item name="android:textColorHint">@color/textSecondary</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
 

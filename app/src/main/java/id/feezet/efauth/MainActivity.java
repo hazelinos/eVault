@@ -140,7 +140,9 @@ public class MainActivity extends AppCompatActivity {
     private volatile int autoLoginGeneration = 0;
     private String sessionLoginDay = null;
     private EditText autoLoginDelayEdit;
-    private int setupCardId = View.NO_ID;
+    private View settingsScreen;
+    private TextView selectedAccountName;
+    private TextView selectedAccountDetail;
 
     // ---- Auto Login progress screen ----
     private View mainScreen;
@@ -259,6 +261,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        refreshSelectedAccountCard();
 
         if (workflowLaunchPending) {
             workflowLaunchPending = false;
@@ -339,91 +342,58 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(color(R.color.bgBase));
-        root.setPadding(dp(20), dp(24), dp(20), dp(28));
+        LinearLayout root = pageColumn();
+        root.addView(uiText("eVault", 18, R.color.textPrimary, true), fullLp());
+        root.addView(uiText("Akun siap.\nTinggal main.", 34, R.color.textPrimary, true), spacedLp(dp(24)));
+        root.addView(uiText("Kelola AUTH eFootball dalam satu tempat.", 14, R.color.textSecondary, false), spacedLp(dp(10)));
 
-        // ---- Header ----
-        TextView title = new TextView(this);
-        title.setText("eVault");
-        title.setTextSize(36);
-        title.setLetterSpacing(-0.04f);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(color(R.color.textPrimary));
-        root.addView(title, fullLp());
+        LinearLayout selected = card();
+        selected.setBackground(makeDrawable(color(R.color.heroBg), dp(24)));
+        selected.addView(uiText("AKUN TERPILIH", 11, R.color.heroSecondary, true), fullLp());
+        selectedAccountName = uiText("Pilih akun", 30, R.color.heroText, true);
+        selected.addView(selectedAccountName, spacedLp(dp(14)));
+        selectedAccountDetail = uiText("Buka library untuk memilih akun.", 13, R.color.heroSecondary, false);
+        selected.addView(selectedAccountDetail, spacedLp(dp(8)));
+        selected.addView(primaryButton("Switch akun →", v -> switchSelected()), spacedLp(dp(20)));
+        root.addView(selected, spacedLp(dp(24)));
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("eFootball AUTH Manager");
-        subtitle.setTextSize(13);
-        subtitle.setTextColor(color(R.color.textSecondary));
-        subtitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams subLp = fullLp();
-        subLp.bottomMargin = dp(20);
-        root.addView(subtitle, subLp);
+        LinearLayout actions = card();
+        actions.addView(uiText("Kelola AUTH", 20, R.color.textPrimary, true), fullLp());
+        actions.addView(secondaryButton("Daftar akun", v -> showAccountListDialog()), spacedLp(dp(18)));
+        actions.addView(secondaryButton("Buat akun baru", v -> showCreateDialog()), spacedLp(dp(10)));
+        actions.addView(secondaryButton("Simpan AUTH", v -> showSaveAuthDialog()), spacedLp(dp(10)));
+        root.addView(actions, spacedLp(dp(16)));
+        root.addView(primaryButton("Masuk eFootball →", v -> {
+            teardownAutoLogin();
+            clearWorkflow();
+            launchGame();
+        }), spacedLp(dp(16)));
+        root.addView(secondaryButton("Auto Login", v -> startAutoLogin()), spacedLp(dp(10)));
+        root.addView(secondaryButton("Pengaturan", v -> toggleSetupVisibility()), spacedLp(dp(10)));
+        root.addView(secondaryButton("Log aktivitas", v -> showActivityLogDialog()), spacedLp(dp(10)));
 
-        // ---- Setup (collapsed) ----
-        TextView setupToggle = new TextView(this);
-        setupToggle.setText("Pengaturan folder & aplikasi   ›");
-        setupToggle.setTextSize(13);
-        setupToggle.setTextColor(color(R.color.textPrimary));
-        setupToggle.setMinHeight(dp(48));
-        setupToggle.setGravity(Gravity.CENTER_VERTICAL);
-        setupToggle.setBackground(buttonBackground(color(R.color.surface), color(R.color.divider)));
-        setupToggle.setPadding(dp(16), dp(12), dp(16), dp(12));
-        setupToggle.setOnClickListener(v -> toggleSetupVisibility());
-        LinearLayout.LayoutParams setupToggleLp = fullLp();
-        setupToggleLp.bottomMargin = dp(12);
-        root.addView(setupToggle, setupToggleLp);
+        status = uiText("Siap digunakan.", 12, R.color.textSecondary, false);
+        status.setGravity(Gravity.CENTER);
+        root.addView(status, spacedLp(dp(18)));
+        mainScreen = pageScroll(root);
 
+        LinearLayout settings = pageColumn();
+        settings.addView(secondaryButton("← Beranda", v -> closeSettings()), fullLp());
+        settings.addView(uiText("Pengaturan", 18, R.color.textPrimary, true), spacedLp(dp(24)));
+        settings.addView(uiText("Atur sekali.\nPakai terus.", 34, R.color.textPrimary, true), spacedLp(dp(18)));
+        settings.addView(uiText("Koneksi folder dan preferensi aplikasi.", 14, R.color.textSecondary, false), spacedLp(dp(10)));
         LinearLayout setupCard = card();
-        setupCard.setVisibility(View.GONE);
-        setupCard.addView(sectionLabel("PENGATURAN"));
-        setupCard.setId(View.generateViewId());
-        this.setupCardId = setupCard.getId();
-        // eFootball clone detection and selection lives in Setup.
-        TextView gameLabel = new TextView(this);
-        gameLabel.setText("EFOOTBALL CLONE");
-        gameLabel.setTextSize(12);
-        gameLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        gameLabel.setTextColor(color(R.color.textSecondary));
-        setupCard.addView(gameLabel, spacedLp(dp(4)));
-
-        gamePackageStatus = new TextView(this);
-        gamePackageStatus.setTextSize(12);
-        gamePackageStatus.setTextColor(color(R.color.textSecondary));
-        gamePackageStatus.setPadding(0, dp(4), 0, dp(8));
-        setupCard.addView(gamePackageStatus, fullLp());
-
-        Button chooseGame = secondaryButton("SCAN & PILIH CLONE", v -> showGamePicker());
-        setupCard.addView(chooseGame, fullLp());
+        setupCard.addView(uiText("Penyimpanan", 20, R.color.textPrimary, true), fullLp());
+        setupCard.addView(secondaryButton("Pilih folder library", v -> chooseLibrary()), spacedLp(dp(18)));
+        setupCard.addView(secondaryButton("Pilih folder AUTH", v -> chooseTree(pickTarget)), spacedLp(dp(10)));
+        gamePackageStatus = uiText("", 12, R.color.textSecondary, false);
+        setupCard.addView(gamePackageStatus, spacedLp(dp(14)));
+        setupCard.addView(secondaryButton("Scan & pilih clone", v -> showGamePicker()), spacedLp(dp(10)));
         refreshGamePackageStatus();
-
-        // Setup actions: 2 rows x 2 columns.
-        LinearLayout setupRow1 = new LinearLayout(this);
-        setupRow1.setOrientation(LinearLayout.HORIZONTAL);
-        Button library = secondaryButton("PILIH AUTH LIBRARY", v -> chooseLibrary());
-        setupRow1.addView(library, weightLp(dp(6), 0));
-        Button target = secondaryButton("PILIH FOLDER AUTH", v -> chooseTree(pickTarget));
-        setupRow1.addView(target, weightLp(dp(6), 1));
-        setupCard.addView(setupRow1, spacedLp(dp(10)));
-
-        LinearLayout setupRow2 = new LinearLayout(this);
-        setupRow2.setOrientation(LinearLayout.HORIZONTAL);
-        Button webhookBtn = secondaryButton("🔔 WEBHOOK", v -> showDiscordWebhookDialog());
-        setupRow2.addView(webhookBtn, weightLp(dp(6), 0));
-        Button activityLogBtn = secondaryButton("📋 LOG AKTIVITAS", v -> showActivityLogDialog());
-        setupRow2.addView(activityLogBtn, weightLp(dp(6), 1));
-        LinearLayout.LayoutParams setupRow2Lp = fullLp();
-        setupRow2Lp.topMargin = dp(8);
-        setupCard.addView(setupRow2, setupRow2Lp);
-
-        // Delay input (moved to Setup)
-        TextView delayLabel = new TextView(this);
-        delayLabel.setText("Delay AUTO LOGIN (detik)");
-        delayLabel.setTextSize(12);
-        delayLabel.setTextColor(color(R.color.textSecondary));
-        setupCard.addView(delayLabel, spacedLp(dp(14)));
+        settings.addView(setupCard, spacedLp(dp(24)));
+        LinearLayout automation = card();
+        automation.addView(uiText("Auto Login", 20, R.color.textPrimary, true), fullLp());
+        automation.addView(uiText("Jeda antar akun (detik)", 13, R.color.textSecondary, false), spacedLp(dp(18)));
         autoLoginDelayEdit = new EditText(this);
         autoLoginDelayEdit.setInputType(2);
         autoLoginDelayEdit.setSingleLine(true);
@@ -433,89 +403,86 @@ public class MainActivity extends AppCompatActivity {
             if (!hasFocus) saveAutoLoginDelay();
         });
         styleInput(autoLoginDelayEdit);
-        setupCard.addView(autoLoginDelayEdit, spacedLp(dp(6)));
+        automation.addView(autoLoginDelayEdit, spacedLp(dp(8)));
+        automation.addView(secondaryButton("Pengaturan Discord", v -> showDiscordWebhookDialog()), spacedLp(dp(12)));
+        settings.addView(automation, spacedLp(dp(16)));
+        LinearLayout other = card();
+        other.addView(secondaryButton("Log aktivitas", v -> showActivityLogDialog()), fullLp());
+        other.addView(dangerButton("Hapus data AUTH", v -> showDeleteDataConfirmDialog()), spacedLp(dp(10)));
+        other.addView(uiText("Konfirmasi sebelum menghapus data.", 12, R.color.textSecondary, false), spacedLp(dp(12)));
+        settings.addView(other, spacedLp(dp(16)));
+        settingsScreen = pageScroll(settings);
+        settingsScreen.setVisibility(View.GONE);
 
-        root.addView(setupCard, cardLp());
-
-        // Account actions share one surface; listeners retain their existing behavior.
-        LinearLayout accountCard = card();
-        accountCard.addView(sectionLabel("AUTH LIBRARY"));
-        TextView accountHeading = new TextView(this);
-        accountHeading.setText("Kelola akunmu");
-        accountHeading.setTextSize(22);
-        accountHeading.setTypeface(Typeface.DEFAULT_BOLD);
-        accountHeading.setTextColor(color(R.color.textPrimary));
-        accountCard.addView(accountHeading, fullLp());
-        TextView accountHint = new TextView(this);
-        accountHint.setText("Pilih akun dari library untuk beralih atau menjalankan Auto Login.");
-        accountHint.setTextSize(13);
-        accountHint.setTextColor(color(R.color.textSecondary));
-        accountHint.setLineSpacing(dp(3), 1f);
-        accountCard.addView(accountHint, spacedLp(dp(6)));
-
-        Button accountListBtn = secondaryButton("Daftar akun   ›", v -> showAccountListDialog());
-        accountCard.addView(accountListBtn, spacedLp(dp(18)));
-
-        LinearLayout row1 = new LinearLayout(this);
-        row1.setOrientation(LinearLayout.HORIZONTAL);
-        Button switchBtn = primaryButton("Switch", v -> switchSelected());
-        row1.addView(switchBtn, weightLp(dp(5), 0));
-        Button autoBtn = secondaryButton("Auto Login", v -> startAutoLogin());
-        row1.addView(autoBtn, weightLp(dp(5), 1));
-        accountCard.addView(row1, spacedLp(dp(10)));
-        root.addView(accountCard, cardLp());
-
-        LinearLayout manageCard = card();
-        manageCard.addView(sectionLabel("PENGELOLAAN AUTH"));
-        LinearLayout row2 = new LinearLayout(this);
-        row2.setOrientation(LinearLayout.HORIZONTAL);
-        Button createBtn = secondaryButton("Buat baru", v -> showCreateDialog());
-        row2.addView(createBtn, weightLp(dp(5), 0));
-        Button saveAuthBtn = secondaryButton("Simpan AUTH", v -> showSaveAuthDialog());
-        row2.addView(saveAuthBtn, weightLp(dp(5), 1));
-        manageCard.addView(row2, fullLp());
-        Button deleteDataBtn = dangerButton("Hapus data", v -> showDeleteDataConfirmDialog());
-        manageCard.addView(deleteDataBtn, spacedLp(dp(10)));
-        root.addView(manageCard, cardLp());
-
-        Button enterBtn = primaryButton("Masuk eFootball   →", v -> {
-            teardownAutoLogin();
-            clearWorkflow();
-            launchGame();
-        });
-        root.addView(enterBtn, fullLp());
-
-        // ---- Status ----
-        status = new TextView(this);
-        status.setText("Siap digunakan.");
-        status.setTextColor(color(R.color.textSecondary));
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setPadding(dp(14), dp(12), dp(14), dp(12));
-        status.setBackground(makeDrawable(color(R.color.surface), dp(14)));
-        LinearLayout.LayoutParams statusLp = fullLp();
-        statusLp.topMargin = dp(16);
-        root.addView(status, statusLp);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(color(R.color.bgBase));
-        scroll.addView(root);
-        this.mainScreen = scroll;
-
-        // A single FrameLayout host lets us swap between the main screen and the
-        // Auto Login progress screen without rebuilding the whole UI.
         FrameLayout host = new FrameLayout(this);
         host.setBackgroundColor(color(R.color.bgBase));
-        host.addView(this.mainScreen, new FrameLayout.LayoutParams(-1, -1));
-        // Android 15 (targetSdk 35) draws edge-to-edge; keep content clear of system bars.
+        host.addView(mainScreen, new FrameLayout.LayoutParams(-1, -1));
+        host.addView(settingsScreen, new FrameLayout.LayoutParams(-1, -1));
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(host, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
                     androidx.core.view.WindowInsetsCompat.Type.systemBars());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return insets;
         });
-        this.screenHost = host;
+        screenHost = host;
         setContentView(host);
+        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (settingsScreen.getVisibility() == View.VISIBLE) {
+                    closeSettings();
+                } else {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                }
+            }
+        });
+    }
+
+    private LinearLayout pageColumn() {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setBackgroundColor(color(R.color.bgBase));
+        column.setPadding(dp(24), dp(24), dp(24), dp(32));
+        return column;
+    }
+
+    private ScrollView pageScroll(LinearLayout content) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(color(R.color.bgBase));
+        scroll.addView(content);
+        return scroll;
+    }
+
+    private TextView uiText(String text, int size, int colorId, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color(colorId));
+        view.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        view.setLineSpacing(dp(2), 1f);
+        return view;
+    }
+
+    private void closeSettings() {
+        saveAutoLoginDelay();
+        autoLoginDelayEdit.clearFocus();
+        settingsScreen.setVisibility(View.GONE);
+        mainScreen.setVisibility(View.VISIBLE);
+        android.view.inputmethod.InputMethodManager keyboard =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(autoLoginDelayEdit.getWindowToken(), 0);
+    }
+
+    private void refreshSelectedAccountCard() {
+        if (selectedAccountName == null) return;
+        Account account = selectedAccount;
+        selectedAccountName.setText(account == null ? "Pilih akun" : account.name);
+        selectedAccountDetail.setText(account == null
+                ? "Buka library untuk memilih akun."
+                : account.category + " · " + (isLoginVerifiedToday(account)
+                    ? "Sudah login hari ini" : "Belum terverifikasi hari ini"));
     }
 
     // ================= Auto Login progress screen =================
@@ -555,14 +522,17 @@ public class MainActivity extends AppCompatActivity {
         titleLp.bottomMargin = dp(18);
         root.addView(title, titleLp);
 
+        LinearLayout progressCard = card();
+        progressCard.setBackground(makeDrawable(color(R.color.heroBg), dp(24)));
+        progressCard.addView(uiText("PROGRES AUTO LOGIN", 11, R.color.heroSecondary, true), fullLp());
         LinearLayout cardBox = card();
 
         alProgressCount = new TextView(this);
-        alProgressCount.setTextSize(32);
+        alProgressCount.setTextSize(48);
         alProgressCount.setTypeface(Typeface.DEFAULT_BOLD);
-        alProgressCount.setTextColor(color(R.color.textPrimary));
+        alProgressCount.setTextColor(color(R.color.heroText));
         alProgressCount.setGravity(Gravity.CENTER);
-        cardBox.addView(alProgressCount, fullLp());
+        progressCard.addView(alProgressCount, spacedLp(dp(16)));
 
         alProgressBar = new TextView(this);
         alProgressBar.setTextSize(18);
@@ -571,15 +541,16 @@ public class MainActivity extends AppCompatActivity {
         alProgressBar.setTypeface(Typeface.MONOSPACE);
         LinearLayout.LayoutParams barLp = fullLp();
         barLp.topMargin = dp(10);
-        cardBox.addView(alProgressBar, barLp);
+        progressCard.addView(alProgressBar, barLp);
 
         alPercent = new TextView(this);
         alPercent.setTextSize(14);
-        alPercent.setTextColor(color(R.color.textSecondary));
+        alPercent.setTextColor(color(R.color.heroSecondary));
         alPercent.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams pctLp = fullLp();
         pctLp.topMargin = dp(4);
-        cardBox.addView(alPercent, pctLp);
+        progressCard.addView(alPercent, pctLp);
+        root.addView(progressCard, cardLp());
 
         alCurrent = infoLine(cardBox, "Current:");
         alSuccess = infoLine(cardBox, "Successful:");
@@ -593,7 +564,7 @@ public class MainActivity extends AppCompatActivity {
         alStatus = new TextView(this);
         alStatus.setTextSize(16);
         alStatus.setTypeface(Typeface.DEFAULT_BOLD);
-        alStatus.setTextColor(color(R.color.accent));
+        alStatus.setTextColor(color(R.color.primaryDark));
         alStatus.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams statusLp = fullLp();
         statusLp.topMargin = dp(14);
@@ -601,10 +572,10 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(cardBox, cardLp());
 
-        alPauseButton = secondaryButton("PAUSE", v -> pauseAutoLogin());
-        alStopButton = dangerButton("STOP", v -> stopAutoLogin());
-        alContinueButton = primaryButton("CONTINUE", v -> resumeAutoLogin());
-        alExitButton = secondaryButton("EXIT", v -> exitAutoLogin());
+        alPauseButton = secondaryButton("Jeda proses", v -> pauseAutoLogin());
+        alStopButton = dangerButton("Hentikan", v -> stopAutoLogin());
+        alContinueButton = primaryButton("Lanjutkan", v -> resumeAutoLogin());
+        alExitButton = secondaryButton("Keluar", v -> exitAutoLogin());
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
@@ -668,7 +639,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.divider), dp(22)));
+        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.surface), dp(24)));
         c.setPadding(dp(18), dp(20), dp(18), dp(20));
         return c;
     }
@@ -710,14 +681,14 @@ public class MainActivity extends AppCompatActivity {
 
     private RippleDrawable buttonBackground(int fill, int stroke) {
         return new RippleDrawable(ColorStateList.valueOf(0x26FFFFFF),
-                makeDrawableWithStroke(fill, stroke, dp(14)),
-                makeDrawable(Color.WHITE, dp(14)));
+                makeDrawableWithStroke(fill, stroke, dp(20)),
+                makeDrawable(Color.WHITE, dp(20)));
     }
 
     private Button primaryButton(String text, View.OnClickListener l) {
         Button b = baseButton(text, l);
         b.setBackground(buttonBackground(color(R.color.primary), color(R.color.primary)));
-        b.setTextColor(color(R.color.bgBase));
+        b.setTextColor(color(R.color.textPrimary));
         return b;
     }
 
@@ -839,7 +810,8 @@ public class MainActivity extends AppCompatActivity {
         });
         // The list was rebuilt with fresh Account objects; re-point the selection so the
         // selected-account marker and Switch Account keep working after a reload.
-        resolveSelectedAccount();
+        selectedAccount = resolveSelectedAccount();
+        refreshSelectedAccountCard();
     }
 
     private void showAccountListDialog() {
@@ -856,7 +828,7 @@ public class MainActivity extends AppCompatActivity {
 
         ListView listView = new ListView(this);
         listView.setDivider(null);
-        listView.setDividerHeight(0);
+        listView.setDividerHeight(dp(10));
         listView.setBackgroundColor(Color.TRANSPARENT);
         listView.setPadding(0, dp(2), 0, dp(2));
 
@@ -899,7 +871,7 @@ public class MainActivity extends AppCompatActivity {
 
                 if (item instanceof String) {
                     TextView header = new TextView(MainActivity.this);
-                    header.setText("📁  " + ((String) item).toUpperCase(Locale.ROOT));
+                    header.setText(((String) item).toUpperCase(Locale.ROOT));
                     header.setTextSize(11);
                     header.setTypeface(Typeface.DEFAULT_BOLD);
                     header.setTextColor(color(R.color.textSecondary));
@@ -913,8 +885,9 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout row = new LinearLayout(MainActivity.this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(10), 0, dp(10), 0);
-                row.setMinimumHeight(dp(44));
+                row.setPadding(dp(16), dp(14), dp(16), dp(14));
+                row.setMinimumHeight(dp(76));
+                row.setBackground(makeDrawable(color(R.color.surface), dp(24)));
 
                 TextView marker = new TextView(MainActivity.this);
                 marker.setText("›");
@@ -928,13 +901,20 @@ public class MainActivity extends AppCompatActivity {
                 name.setTextSize(15);
                 name.setTextColor(color(R.color.textPrimary));
                 name.setGravity(Gravity.CENTER_VERTICAL);
-                row.addView(name, new LinearLayout.LayoutParams(0, dp(44), 1f));
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                LinearLayout details = new LinearLayout(MainActivity.this);
+                details.setOrientation(LinearLayout.VERTICAL);
+                details.addView(name, fullLp());
+                details.addView(uiText(isLoginVerifiedToday(account)
+                        ? "Sudah login hari ini" : "Belum terverifikasi hari ini",
+                        12, R.color.textSecondary, false), spacedLp(dp(4)));
+                row.addView(details, new LinearLayout.LayoutParams(0, -2, 1f));
 
                 if (selectedAccount == account) {
                     TextView selected = new TextView(MainActivity.this);
                     selected.setText("✓");
                     selected.setTextSize(15);
-                    selected.setTextColor(color(R.color.accent));
+                    selected.setTextColor(color(R.color.primaryDark));
                     selected.setGravity(Gravity.CENTER);
                     row.addView(selected, new LinearLayout.LayoutParams(dp(28), dp(44)));
                 }
@@ -964,7 +944,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         final AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("DAFTAR AKUN")
+                .setTitle("Library akun")
                 .setView(box)
                 .setNegativeButton("TUTUP", null)
                 .create();
@@ -986,16 +966,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void notifySelectedAccount(Account account) {
+        refreshSelectedAccountCard();
         updateStatus("Dipilih: " + account.category + " / " + account.name);
     }
 
     private void toggleSetupVisibility() {
-        View card = findViewById(setupCardId);
-        if (card != null) {
-            boolean opening = card.getVisibility() == View.GONE;
-            card.setVisibility(opening ? View.VISIBLE : View.GONE);
-            if (opening) refreshGamePackageStatus();
-        }
+        mainScreen.setVisibility(View.GONE);
+        settingsScreen.setVisibility(View.VISIBLE);
+        refreshGamePackageStatus();
     }
 
     private void collectAccounts(DocumentFile categoryRoot, String categoryName) {
