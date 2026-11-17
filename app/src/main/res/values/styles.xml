@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+    <style name="AppThemeBase" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:colorPrimary">@color/primary</item>
         <item name="android:colorPrimaryDark">@color/bgBase</item>
         <item name="android:windowBackground">@color/bgBase</item>
         <item name="android:statusBarColor">@color/bgBase</item>
-        <item name="android:navigationBarColor">@color/bgBase</item>
+        <item name="android:navigationBarColor">@color/heroBg</item>
         <item name="android:textColorPrimary">@color/textPrimary</item>
         <item name="android:textColorSecondary">@color/textSecondary</item>
         <item name="android:textColorHint">@color/textSecondary</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
+    <style name="AppTheme" parent="AppThemeBase" />
 </resources>
 
