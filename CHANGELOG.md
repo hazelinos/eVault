@@ -2,6 +2,16 @@
 
 All notable changes to eVault are documented here.
 
+## [1.4.1] — 2026-11-17
+
+### Figma UI redesign
+
+- Light surfaces, lime action buttons, rounded cards, and a live selected-account summary.
+- Separate Settings screen for folders, clone selection, delay, Discord, activity log, and AUTH deletion.
+- Account list includes daily login verification labels; Auto Login has a separate progress summary.
+- Existing AUTH and Auto Login handlers retained; application ID and signing key unchanged.
+- Android 8.0 navigation bar compatibility; version code increased to **33**.
+
 ## [1.4.0] — 2026-11-14
 
 ### Interface refresh
