@@ -99,13 +99,18 @@ public class NeoUiTest {
         File folder=new File(InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir(null),"ui-screenshots");
         assertTrue(folder.exists() || folder.mkdirs());
         try(FileOutputStream out=new FileOutputStream(new File(folder,name+".png"))){bitmap.compress(Bitmap.CompressFormat.PNG,100,out);}
-        bitmap.recycle();
-        // AGP may uninstall the tested app, so keep evidence outside its sandbox.
-        try(android.os.ParcelFileDescriptor descriptor = InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation().executeShellCommand("mkdir -p /data/local/tmp/evault-ui && cp " + new File(folder, name + ".png").getAbsolutePath() + " /data/local/tmp/evault-ui/" + name + ".png");
-            java.io.InputStream stream = new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)) {
-            byte[] buffer = new byte[1024];
-            while(stream.read(buffer) != -1) { /* Drain to wait for screencap completion. */ }
+        // Pipe image bytes to shell-owned storage; scoped storage blocks shell reads of app files.
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            android.os.ParcelFileDescriptor[] descriptors = InstrumentationRegistry.getInstrumentation()
+                    .getUiAutomation().executeShellCommandRw("mkdir -p /data/local/tmp/evault-ui && cat > /data/local/tmp/evault-ui/" + name + ".png");
+            try(java.io.OutputStream output = new android.os.ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1])) {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
+            }
+            try(java.io.InputStream input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptors[0])) {
+                byte[] buffer = new byte[1024];
+                while(input.read(buffer) != -1) { /* Wait until cat has written the image. */ }
+            }
         }
+        bitmap.recycle();
     }
 }
