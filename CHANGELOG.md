@@ -2,6 +2,15 @@
 
 All notable changes to eVault are documented here.
 
+## [1.5.1] — 2026-11-18
+
+- Home blue card now displays a scrollable, categorized AUTH library with verification status and selection highlights.
+- Tap an account in place, then Switch; library search remains available from the card heading.
+- Replaced the redundant account-list action with confirmed deletion of the installed AUTH only.
+- Settings now contains exactly Setup, Delay masuk eFootball, Webhook, and About.
+- Existing Auto Login delay validation and persistence retained; library files and account operations unchanged.
+- Version code **35**, same application ID and stable signing key.
+
 ## [1.5.0] — 2026-11-18
 
 ### Modern Neo-Brutalist Blue
