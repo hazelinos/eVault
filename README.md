@@ -2,7 +2,7 @@
 
 **eVault** is a lightweight Android utility for managing eFootball AUTH files (`online_user_id_data.dat`) locally.
 
-> Current release: **v1.4.1**
+> Current release: **v1.5.0**
 
 ## Overview
 

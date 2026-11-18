@@ -1,6 +1,6 @@
 package id.feezet.efauth;
 
-import android.app.AlertDialog;
+import androidx.appcompat.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -52,6 +52,12 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import id.feezet.efauth.ui.HomeLayout;
+import id.feezet.efauth.ui.NeoButton;
+import id.feezet.efauth.ui.NeoSurface;
+import id.feezet.efauth.ui.NeoIcons;
+import id.feezet.efauth.ui.NeoDialogBuilder;
 
 public class MainActivity extends AppCompatActivity {
     private static final String AUTH_FILE = "online_user_id_data.dat";
@@ -141,6 +147,8 @@ public class MainActivity extends AppCompatActivity {
     private String sessionLoginDay = null;
     private EditText autoLoginDelayEdit;
     private View settingsScreen;
+    private View setupScreen;
+    private View detailScreen;
     private TextView selectedAccountName;
     private TextView selectedAccountDetail;
 
@@ -151,6 +159,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView alProgressCount;
     private TextView alProgressBar;
     private TextView alPercent;
+    private android.widget.ProgressBar alLoading;
     private TextView alCurrent;
     private TextView alSuccess;
     private TextView alFailed;
@@ -323,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
         addActivityLog("CREATE ACCOUNT resume tersedia: [" + (index + 1) + "/" + total + "] "
                 + current + " (" + category + ")");
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("LANJUTKAN BUAT AKUN?")
             .setMessage("Progress: " + (index + 1) + "/" + total
                     + "\nAkun berikutnya: " + current
@@ -342,85 +351,130 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void buildUi() {
-        LinearLayout root = pageColumn();
-        root.addView(uiText("eVault", 18, R.color.textPrimary, true), fullLp());
-        root.addView(uiText("Akun siap.\nTinggal main.", 34, R.color.textPrimary, true), spacedLp(dp(24)));
-        root.addView(uiText("Kelola AUTH eFootball dalam satu tempat.", 14, R.color.textSecondary, false), spacedLp(dp(10)));
+        HomeLayout home = new HomeLayout(this);
+        home.setTag("home");
+        home.setBackgroundColor(color(R.color.bgBase));
+        TextView logo = uiText("eVault //", 30, R.color.textPrimary, true);
+        logo.setTypeface(Typeface.create("sans-serif", Typeface.BOLD_ITALIC));
+        logo.setGravity(Gravity.CENTER_VERTICAL);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                logo, 20, 32, 1, TypedValue.COMPLEX_UNIT_SP);
+        android.text.SpannableString wordmark = new android.text.SpannableString("eVault //");
+        wordmark.setSpan(new android.text.style.ForegroundColorSpan(color(R.color.primary)), 7, 9, 0);
+        logo.setText(wordmark);
+        home.addView(logo);
 
         LinearLayout selected = card();
-        selected.setBackground(makeDrawable(color(R.color.heroBg), dp(24)));
-        selected.addView(uiText("AKUN TERPILIH", 11, R.color.heroSecondary, true), fullLp());
-        selectedAccountName = uiText("Pilih akun", 30, R.color.heroText, true);
-        selected.addView(selectedAccountName, spacedLp(dp(14)));
-        selectedAccountDetail = uiText("Buka library untuk memilih akun.", 13, R.color.heroSecondary, false);
-        selected.addView(selectedAccountDetail, spacedLp(dp(8)));
-        selected.addView(primaryButton("Switch akun →", v -> switchSelected()), spacedLp(dp(20)));
-        root.addView(selected, spacedLp(dp(24)));
+        selected.setPadding(dp(16), dp(12), dp(20), dp(16));
+        selected.setBackground(neoSurface(R.color.primary, false, 4));
+        selected.addView(uiText("AKUN TERPILIH", 11, R.color.white, true), fullLp());
+        selectedAccountName = uiText("Pilih akun", 28, R.color.white, true);
+        selectedAccountName.setMaxLines(1);
+        selectedAccountName.setEllipsize(TextUtils.TruncateAt.END);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                selectedAccountName, 18, 30, 1, TypedValue.COMPLEX_UNIT_SP);
+        selected.addView(selectedAccountName, new LinearLayout.LayoutParams(-1, 0, 1f));
+        selectedAccountDetail = uiText("Buka library untuk memilih akun.", 12, R.color.white, false);
+        selectedAccountDetail.setMaxLines(2);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                selectedAccountDetail, 10, 13, 1, TypedValue.COMPLEX_UNIT_SP);
+        selected.addView(selectedAccountDetail, fullLp());
+        selected.addView(iconButton("Switch Akun", "switch", false, v -> switchSelected()),
+                new LinearLayout.LayoutParams(-1, dp(48)));
+        home.addView(selected);
 
-        LinearLayout actions = card();
-        actions.addView(uiText("Kelola AUTH", 20, R.color.textPrimary, true), fullLp());
-        actions.addView(secondaryButton("Daftar akun", v -> showAccountListDialog()), spacedLp(dp(18)));
-        actions.addView(secondaryButton("Buat akun baru", v -> showCreateDialog()), spacedLp(dp(10)));
-        actions.addView(secondaryButton("Simpan AUTH", v -> showSaveAuthDialog()), spacedLp(dp(10)));
-        root.addView(actions, spacedLp(dp(16)));
-        root.addView(primaryButton("Masuk eFootball →", v -> {
-            teardownAutoLogin();
-            clearWorkflow();
-            launchGame();
-        }), spacedLp(dp(16)));
-        root.addView(secondaryButton("Auto Login", v -> startAutoLogin()), spacedLp(dp(10)));
-        root.addView(secondaryButton("Pengaturan", v -> toggleSetupVisibility()), spacedLp(dp(10)));
-        root.addView(secondaryButton("Log aktivitas", v -> showActivityLogDialog()), spacedLp(dp(10)));
+        TextView authTitle = uiText("Kelola AUTH", 20, R.color.textPrimary, true);
+        authTitle.setGravity(Gravity.CENTER_VERTICAL);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                authTitle, 14, 20, 1, TypedValue.COMPLEX_UNIT_SP);
+        home.addView(authTitle);
+        LinearLayout auth = new LinearLayout(this);
+        auth.setContentDescription("Kelola AUTH");
+        auth.setOrientation(LinearLayout.HORIZONTAL);
+        auth.setBaselineAligned(false);
+        Button list = iconButton("Daftar\nAkun", "library", false, v -> showAccountListDialog());
+        Button create = iconButton("Buat Akun\nBaru", "add", false, v -> showCreateDialog());
+        Button save = iconButton("Simpan\nAUTH", "save", false, v -> showSaveAuthDialog());
+        // Stack icons above labels so all three native touch targets remain wide enough.
+        for (Button button : new Button[] {list, create, save}) {
+            android.graphics.drawable.Drawable icon = button.getCompoundDrawables()[0];
+            button.setCompoundDrawables(null, icon, null, null);
+            button.setCompoundDrawablePadding(dp(2));
+            button.setContentDescription(button.getText().toString().replace('\n', ' '));
+        }
+        auth.addView(list, homeCell(0)); auth.addView(create, homeCell(1)); auth.addView(save, homeCell(2));
+        home.addView(auth);
+        home.addView(iconButton("Masuk eFootball  →", "play", true, v -> {
+            teardownAutoLogin(); clearWorkflow(); launchGame();
+        }));
+        LinearLayout secondary = new LinearLayout(this);
+        secondary.setOrientation(LinearLayout.HORIZONTAL);
+        secondary.setBaselineAligned(false);
+        secondary.addView(iconButton("Auto Login", "auto", false, v -> startAutoLogin()), weightLp(dp(4), 0));
+        secondary.addView(iconButton("Pengaturan", "settings", false, v -> toggleSetupVisibility()), weightLp(dp(4), 1));
+        home.addView(secondary);
+        home.addView(iconButton("Log Aktivitas  →", "log", false, v -> showActivityLogDialog()));
+        status = uiText("Siap digunakan.", 11, R.color.textSecondary, false);
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        status.setMaxLines(1);
+        status.setEllipsize(TextUtils.TruncateAt.END);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        status.setOnClickListener(v -> showInfoDialog("Status eVault", status.getText().toString()));
+        home.addView(status);
+        mainScreen = home;
 
-        status = uiText("Siap digunakan.", 12, R.color.textSecondary, false);
-        status.setGravity(Gravity.CENTER);
-        root.addView(status, spacedLp(dp(18)));
-        mainScreen = pageScroll(root);
-
-        LinearLayout settings = pageColumn();
-        settings.addView(secondaryButton("← Beranda", v -> closeSettings()), fullLp());
-        settings.addView(uiText("Pengaturan", 18, R.color.textPrimary, true), spacedLp(dp(24)));
-        settings.addView(uiText("Atur sekali.\nPakai terus.", 34, R.color.textPrimary, true), spacedLp(dp(18)));
-        settings.addView(uiText("Koneksi folder dan preferensi aplikasi.", 14, R.color.textSecondary, false), spacedLp(dp(10)));
-        LinearLayout setupCard = card();
-        setupCard.addView(uiText("Penyimpanan", 20, R.color.textPrimary, true), fullLp());
-        setupCard.addView(secondaryButton("Pilih folder library", v -> chooseLibrary()), spacedLp(dp(18)));
-        setupCard.addView(secondaryButton("Pilih folder AUTH", v -> chooseTree(pickTarget)), spacedLp(dp(10)));
-        gamePackageStatus = uiText("", 12, R.color.textSecondary, false);
-        setupCard.addView(gamePackageStatus, spacedLp(dp(14)));
-        setupCard.addView(secondaryButton("Scan & pilih clone", v -> showGamePicker()), spacedLp(dp(10)));
+        LinearLayout setup = pageColumn();
+        setup.addView(secondaryButton("← Pengaturan", v -> closeSetup()), fullLp());
+        setup.addView(uiText("Setup", 32, R.color.textPrimary, true), spacedLp(dp(24)));
+        setup.addView(uiText("Konfigurasi data eFootball. Bisa dibuka kembali kapan saja.", 14, R.color.textSecondary, false), spacedLp(dp(8)));
+        LinearLayout folders = card();
+        folders.addView(sectionLabel("PENYIMPANAN"));
+        folders.addView(secondaryButton("Pilih AUTH Library", v -> chooseLibrary()), fullLp());
+        folders.addView(secondaryButton("Pilih folder AUTH", v -> chooseTree(pickTarget)), spacedLp(dp(8)));
+        setup.addView(folders, spacedLp(dp(24)));
+        LinearLayout game = card();
+        game.addView(sectionLabel("EFOOTBALL CLONE"));
+        gamePackageStatus = uiText("", 13, R.color.textSecondary, false);
+        game.addView(gamePackageStatus, fullLp());
+        game.addView(secondaryButton("Scan & pilih clone", v -> showGamePicker()), spacedLp(dp(16)));
+        setup.addView(game, spacedLp(dp(16)));
+        setupScreen = pageScroll(setup);
+        setupScreen.setTag("setup");
+        setupScreen.setVisibility(View.GONE);
         refreshGamePackageStatus();
-        settings.addView(setupCard, spacedLp(dp(24)));
-        LinearLayout automation = card();
-        automation.addView(uiText("Auto Login", 20, R.color.textPrimary, true), fullLp());
-        automation.addView(uiText("Jeda antar akun (detik)", 13, R.color.textSecondary, false), spacedLp(dp(18)));
+
+        // Persistent delay editor is reused by the additional-options page.
         autoLoginDelayEdit = new EditText(this);
         autoLoginDelayEdit.setInputType(2);
         autoLoginDelayEdit.setSingleLine(true);
         autoLoginDelayEdit.setText(String.valueOf(prefs.getInt(KEY_AUTO_LOGIN_DELAY, DEFAULT_AUTO_LOGIN_DELAY)));
         autoLoginDelayEdit.setHint(String.valueOf(DEFAULT_AUTO_LOGIN_DELAY));
-        autoLoginDelayEdit.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) saveAutoLoginDelay();
-        });
+        autoLoginDelayEdit.setContentDescription("Jeda Auto Login dalam detik");
+        autoLoginDelayEdit.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus) saveAutoLoginDelay(); });
         styleInput(autoLoginDelayEdit);
-        automation.addView(autoLoginDelayEdit, spacedLp(dp(8)));
-        automation.addView(secondaryButton("Pengaturan Discord", v -> showDiscordWebhookDialog()), spacedLp(dp(12)));
-        settings.addView(automation, spacedLp(dp(16)));
-        LinearLayout other = card();
-        other.addView(secondaryButton("Log aktivitas", v -> showActivityLogDialog()), fullLp());
-        other.addView(dangerButton("Hapus data AUTH", v -> showDeleteDataConfirmDialog()), spacedLp(dp(10)));
-        other.addView(uiText("Konfirmasi sebelum menghapus data.", 12, R.color.textSecondary, false), spacedLp(dp(12)));
-        settings.addView(other, spacedLp(dp(16)));
+
+        LinearLayout settings = pageColumn();
+        settings.addView(iconButton("Kembali", "back", false, v -> closeSettings()), fullLp());
+        settings.addView(uiText("Pengaturan", 32, R.color.textPrimary, true), spacedLp(dp(24)));
+        settings.addView(uiText("Atur dan kelola eVault sesuai kebutuhan.", 14, R.color.textSecondary, false), spacedLp(dp(8)));
+        settings.addView(menuButton("Setup", "Konfigurasi data eFootball.", "settings", true, v -> openSetup()), spacedLp(dp(24)));
+        settings.addView(menuButton("Kelola AUTH", "Daftar, buat, dan simpan akun.", "library", false, v -> openAuthActions()), spacedLp(dp(16)));
+        settings.addView(menuButton("Switch Akun", "Pilih akun yang ingin digunakan.", "switch", false, v -> openSwitchActions()), spacedLp(dp(16)));
+        settings.addView(menuButton("Opsi Tambahan", "Auto Login, Discord, dan log aktivitas.", "auto", false, v -> openAdditionalOptions()), spacedLp(dp(16)));
+        settings.addView(menuButton("Tentang eVault", "Versi dan informasi aplikasi.", "info", false, v -> openAbout()), spacedLp(dp(16)));
         settingsScreen = pageScroll(settings);
+        settingsScreen.setTag("settings");
         settingsScreen.setVisibility(View.GONE);
 
         FrameLayout host = new FrameLayout(this);
         host.setBackgroundColor(color(R.color.bgBase));
         host.addView(mainScreen, new FrameLayout.LayoutParams(-1, -1));
         host.addView(settingsScreen, new FrameLayout.LayoutParams(-1, -1));
+        host.addView(setupScreen, new FrameLayout.LayoutParams(-1, -1));
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(host, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
-                    androidx.core.view.WindowInsetsCompat.Type.systemBars());
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return insets;
         });
@@ -428,15 +482,125 @@ public class MainActivity extends AppCompatActivity {
         setContentView(host);
         getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (settingsScreen.getVisibility() == View.VISIBLE) {
-                    closeSettings();
-                } else {
+                if (autoLoginScreen != null && autoLoginScreen.getParent() != null) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    setEnabled(true);
+                } else if (detailScreen != null) closeDetail();
+                else if (setupScreen.getVisibility() == View.VISIBLE) closeSetup();
+                else if (settingsScreen.getVisibility() == View.VISIBLE) closeSettings();
+                else {
                     setEnabled(false);
                     getOnBackPressedDispatcher().onBackPressed();
                     setEnabled(true);
                 }
             }
         });
+    }
+
+    private LinearLayout.LayoutParams homeCell(int index) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1f);
+        lp.leftMargin = index == 0 ? 0 : dp(4);
+        lp.rightMargin = index == 2 ? 0 : dp(4);
+        return lp;
+    }
+
+    private NeoSurface neoSurface(int fillRes, boolean interactive, int shadowDp) {
+        return new NeoSurface(this,
+                color(fillRes), color(R.color.border), interactive, shadowDp);
+    }
+
+    private Button iconButton(String label, String icon, boolean primary, View.OnClickListener listener) {
+        Button button = primary ? primaryButton(label, listener) : secondaryButton(label, listener);
+        button.setCompoundDrawables(new NeoIcons(this, icon, color(primary ? R.color.white : R.color.textPrimary)), null, null, null);
+        button.setCompoundDrawablePadding(dp(8));
+        return button;
+    }
+
+    private Button menuButton(String title, String subtitle, String icon, boolean primary, View.OnClickListener listener) {
+        Button button = iconButton(title + "  ›\n" + subtitle, icon, primary, listener);
+        button.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        button.setTextSize(14);
+        button.setMinHeight(dp(80));
+        button.setPadding(dp(16), dp(12), dp(20), dp(16));
+        return button;
+    }
+
+    private void reveal(View outgoing, View incoming) {
+        if (outgoing != null) outgoing.setVisibility(View.GONE);
+        incoming.setVisibility(View.VISIBLE);
+        incoming.setAlpha(0f);
+        incoming.animate().alpha(1f).setDuration(140).start();
+    }
+
+    private void openSetup() {
+        reveal(settingsScreen, setupScreen);
+        refreshGamePackageStatus();
+    }
+
+    private void closeSetup() { reveal(setupScreen, settingsScreen); }
+
+    private LinearLayout detailPage(String title, String description) {
+        closeDetail();
+        LinearLayout page = pageColumn();
+        page.addView(iconButton("Pengaturan", "back", false, v -> closeDetail()), fullLp());
+        page.addView(uiText(title, 30, R.color.textPrimary, true), spacedLp(dp(24)));
+        page.addView(uiText(description, 14, R.color.textSecondary, false), spacedLp(dp(8)));
+        detailScreen = pageScroll(page);
+        detailScreen.setTag("detail");
+        screenHost.addView(detailScreen, new FrameLayout.LayoutParams(-1, -1));
+        reveal(settingsScreen, detailScreen);
+        return page;
+    }
+
+    private void closeDetail() {
+        saveAutoLoginDelay();
+        if (detailScreen != null) {
+            autoLoginDelayEdit.clearFocus();
+            hideKeyboard();
+            screenHost.removeView(detailScreen);
+            detailScreen = null;
+            settingsScreen.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void openAuthActions() {
+        LinearLayout page = detailPage("Kelola AUTH", "Semua data akun tetap tersimpan di folder pilihanmu.");
+        page.addView(iconButton("Daftar Akun", "library", false, v -> showAccountListDialog()), spacedLp(dp(24)));
+        page.addView(iconButton("Buat Akun Baru", "add", false, v -> showCreateDialog()), spacedLp(dp(16)));
+        page.addView(iconButton("Simpan AUTH", "save", true, v -> showSaveAuthDialog()), spacedLp(dp(16)));
+    }
+
+    private void openSwitchActions() {
+        LinearLayout page = detailPage("Switch Akun", "Pilih akun dari library, lalu pasang AUTH akun tersebut.");
+        page.addView(secondaryButton("Pilih akun dari library", v -> showAccountListDialog()), spacedLp(dp(24)));
+        page.addView(iconButton("Switch Akun", "switch", true, v -> switchSelected()), spacedLp(dp(16)));
+    }
+
+    private void openAdditionalOptions() {
+        LinearLayout page = detailPage("Opsi Tambahan", "Atur Auto Login dan integrasi yang sudah tersedia.");
+        LinearLayout options = card();
+        options.addView(uiText("Jeda Auto Login (detik)", 14, R.color.textPrimary, true), fullLp());
+        if (autoLoginDelayEdit.getParent() instanceof ViewGroup)
+            ((ViewGroup) autoLoginDelayEdit.getParent()).removeView(autoLoginDelayEdit);
+        options.addView(autoLoginDelayEdit, spacedLp(dp(8)));
+        options.addView(iconButton("Mulai Auto Login", "auto", true, v -> startAutoLogin()), spacedLp(dp(16)));
+        page.addView(options, spacedLp(dp(24)));
+        page.addView(secondaryButton("Pengaturan Discord", v -> showDiscordWebhookDialog()), spacedLp(dp(16)));
+        page.addView(iconButton("Log Aktivitas", "log", false, v -> showActivityLogDialog()), spacedLp(dp(16)));
+        page.addView(dangerButton("Hapus data AUTH", v -> showDeleteDataConfirmDialog()), spacedLp(dp(16)));
+    }
+
+    private void openAbout() {
+        LinearLayout page = detailPage("Tentang eVault", "eFootball Account Manager");
+        String version;
+        try { version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (android.content.pm.PackageManager.NameNotFoundException e) { version = "—"; }
+        LinearLayout info = card();
+        info.addView(uiText("eVault  /  " + version, 22, R.color.textPrimary, true), fullLp());
+        info.addView(uiText("Kelola library AUTH, berpindah akun, dan pantau Auto Login. File AUTH disalin tanpa mengubah isinya.", 14, R.color.textSecondary, false), spacedLp(dp(16)));
+        info.addView(uiText("Modern Neo-Brutalist Blue", 12, R.color.primary, true), spacedLp(dp(16)));
+        page.addView(info, spacedLp(dp(24)));
     }
 
     private LinearLayout pageColumn() {
@@ -468,17 +632,21 @@ public class MainActivity extends AppCompatActivity {
     private void closeSettings() {
         saveAutoLoginDelay();
         autoLoginDelayEdit.clearFocus();
-        settingsScreen.setVisibility(View.GONE);
-        mainScreen.setVisibility(View.VISIBLE);
+        hideKeyboard();
+        reveal(settingsScreen, mainScreen);
+    }
+
+    private void hideKeyboard() {
         android.view.inputmethod.InputMethodManager keyboard =
                 (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-        if (keyboard != null) keyboard.hideSoftInputFromWindow(autoLoginDelayEdit.getWindowToken(), 0);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(screenHost.getWindowToken(), 0);
     }
 
     private void refreshSelectedAccountCard() {
         if (selectedAccountName == null) return;
         Account account = selectedAccount;
         selectedAccountName.setText(account == null ? "Pilih akun" : account.name);
+        selectedAccountName.setContentDescription(account == null ? "Belum ada akun terpilih" : account.name);
         selectedAccountDetail.setText(account == null
                 ? "Buka library untuk memilih akun."
                 : account.category + " · " + (isLoginVerifiedToday(account)
@@ -511,7 +679,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(color(R.color.bgBase));
-        root.setPadding(dp(20), dp(24), dp(20), dp(28));
+        root.setPadding(dp(16), dp(24), dp(16), dp(32));
 
         TextView title = new TextView(this);
         title.setText("Auto Login");
@@ -523,7 +691,7 @@ public class MainActivity extends AppCompatActivity {
         root.addView(title, titleLp);
 
         LinearLayout progressCard = card();
-        progressCard.setBackground(makeDrawable(color(R.color.heroBg), dp(24)));
+        progressCard.setBackground(neoSurface(R.color.primary, false, 4));
         progressCard.addView(uiText("PROGRES AUTO LOGIN", 11, R.color.heroSecondary, true), fullLp());
         LinearLayout cardBox = card();
 
@@ -550,6 +718,13 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams pctLp = fullLp();
         pctLp.topMargin = dp(4);
         progressCard.addView(alPercent, pctLp);
+        alLoading = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
+        alLoading.setIndeterminateTintList(ColorStateList.valueOf(color(R.color.white)));
+        alLoading.setContentDescription("Auto Login sedang diproses");
+        LinearLayout.LayoutParams loadingLp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        loadingLp.gravity = Gravity.CENTER_HORIZONTAL;
+        loadingLp.topMargin = dp(8);
+        progressCard.addView(alLoading, loadingLp);
         root.addView(progressCard, cardLp());
 
         alCurrent = infoLine(cardBox, "Current:");
@@ -579,6 +754,7 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.setBaselineAligned(false);
         row1.addView(alPauseButton, weightLp(dp(8), 0));
         row1.addView(alStopButton, weightLp(dp(8), 1));
         LinearLayout.LayoutParams row1Lp = fullLp();
@@ -587,6 +763,7 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setBaselineAligned(false);
         row2.addView(alContinueButton, weightLp(dp(8), 0));
         row2.addView(alExitButton, weightLp(dp(8), 1));
         LinearLayout.LayoutParams row2Lp = fullLp();
@@ -632,15 +809,15 @@ public class MainActivity extends AppCompatActivity {
         drawable.setShape(GradientDrawable.RECTANGLE);
         drawable.setCornerRadius(cornerRadius);
         drawable.setColor(fillColor);
-        drawable.setStroke(dp(1), strokeColor);
+        drawable.setStroke(dp(2), color(R.color.border));
         return drawable;
     }
 
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(makeDrawableWithStroke(color(R.color.surface), color(R.color.surface), dp(24)));
-        c.setPadding(dp(18), dp(20), dp(18), dp(20));
+        c.setBackground(neoSurface(R.color.surface, false, 4));
+        c.setPadding(dp(16), dp(16), dp(20), dp(20));
         return c;
     }
 
@@ -664,53 +841,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Button baseButton(String text, View.OnClickListener listener) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setStateListAnimator(null);
-        b.setMinHeight(dp(52));
-        b.setMinimumWidth(0);
-        b.setMinWidth(0);
-        b.setLetterSpacing(0.01f);
-        b.setPadding(dp(12), dp(10), dp(12), dp(10));
-        b.setOnClickListener(listener);
-        return b;
+        NeoButton button = new NeoButton(this);
+        button.setText(text);
+        button.setOnClickListener(listener);
+        return button;
     }
 
-    private RippleDrawable buttonBackground(int fill, int stroke) {
-        return new RippleDrawable(ColorStateList.valueOf(0x26FFFFFF),
-                makeDrawableWithStroke(fill, stroke, dp(20)),
-                makeDrawable(Color.WHITE, dp(20)));
+    private Button primaryButton(String text, View.OnClickListener listener) {
+        NeoButton button = (NeoButton) baseButton(text, listener);
+        button.setTone(color(R.color.primary), color(R.color.white));
+        return button;
     }
 
-    private Button primaryButton(String text, View.OnClickListener l) {
-        Button b = baseButton(text, l);
-        b.setBackground(buttonBackground(color(R.color.primary), color(R.color.primary)));
-        b.setTextColor(color(R.color.textPrimary));
-        return b;
+    private Button secondaryButton(String text, View.OnClickListener listener) {
+        NeoButton button = (NeoButton) baseButton(text, listener);
+        button.setTone(color(R.color.surface), color(R.color.textPrimary));
+        return button;
     }
 
-    private Button secondaryButton(String text, View.OnClickListener l) {
-        Button b = baseButton(text, l);
-        b.setBackground(buttonBackground(color(R.color.buttonBg), color(R.color.divider)));
-        b.setTextColor(color(R.color.textPrimary));
-        return b;
+    private Button dangerButton(String text, View.OnClickListener listener) {
+        NeoButton button = (NeoButton) baseButton(text, listener);
+        button.setTone(color(R.color.dangerBg), color(R.color.dangerText));
+        return button;
     }
 
-    private Button dangerButton(String text, View.OnClickListener l) {
-        Button b = baseButton(text, l);
-        b.setBackground(buttonBackground(color(R.color.dangerBg), color(R.color.dangerBg)));
-        b.setTextColor(color(R.color.dangerText));
-        return b;
-    }
-
-    private void styleInput(EditText e) {
-        e.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(14)));
-        e.setTextColor(color(R.color.textPrimary));
-        e.setHintTextColor(color(R.color.textSecondary));
-        e.setPadding(dp(12), dp(12), dp(12), dp(12));
+    private void styleInput(EditText input) {
+        input.setBackground(neoSurface(R.color.surface, true, 0));
+        input.setTextColor(color(R.color.textPrimary));
+        input.setHintTextColor(color(R.color.textSecondary));
+        input.setMinHeight(dp(48));
+        input.setPadding(dp(16), dp(12), dp(16), dp(12));
     }
 
     private LinearLayout.LayoutParams fullLp() { return new LinearLayout.LayoutParams(-1, -2); }
@@ -885,9 +1045,9 @@ public class MainActivity extends AppCompatActivity {
                 LinearLayout row = new LinearLayout(MainActivity.this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(16), dp(14), dp(16), dp(14));
+                row.setPadding(dp(16), dp(14), dp(16), dp(10));
                 row.setMinimumHeight(dp(76));
-                row.setBackground(makeDrawable(color(R.color.surface), dp(24)));
+                row.setBackground(neoSurface(selectedAccount == account ? R.color.lightBlue : R.color.surface, true, 4));
 
                 TextView marker = new TextView(MainActivity.this);
                 marker.setText("›");
@@ -943,7 +1103,7 @@ public class MainActivity extends AppCompatActivity {
             public void afterTextChanged(Editable s) {}
         });
 
-        final AlertDialog dialog = new AlertDialog.Builder(this)
+        final AlertDialog dialog = new NeoDialogBuilder(this)
                 .setTitle("Library akun")
                 .setView(box)
                 .setNegativeButton("TUTUP", null)
@@ -971,9 +1131,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void toggleSetupVisibility() {
-        mainScreen.setVisibility(View.GONE);
-        settingsScreen.setVisibility(View.VISIBLE);
-        refreshGamePackageStatus();
+        reveal(mainScreen, settingsScreen);
     }
 
     private void collectAccounts(DocumentFile categoryRoot, String categoryName) {
@@ -1052,7 +1210,7 @@ public class MainActivity extends AppCompatActivity {
         ArrayList<String> choices = new ArrayList<>(categories);
         choices.add("＋ BUAT KATEGORI BARU");
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("PILIH KATEGORI PENYIMPANAN")
             .setItems(choices.toArray(new String[0]), (d, which) -> {
                 if (which == choices.size() - 1) {
@@ -1071,7 +1229,7 @@ public class MainActivity extends AppCompatActivity {
         input.setHint("Nama kategori");
         styleInput(input);
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new NeoDialogBuilder(this)
             .setTitle("BUAT KATEGORI BARU")
             .setMessage("Masukkan nama kategori untuk AUTH ini.")
             .setView(input)
@@ -1126,7 +1284,7 @@ public class MainActivity extends AppCompatActivity {
         box.setPadding(dp(8), dp(8), dp(8), dp(4));
         box.addView(input, fullLp());
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        AlertDialog dialog = new NeoDialogBuilder(this)
             .setTitle("NAMA AUTH")
             .setMessage("Kategori: " + categoryName + "\nMasukkan nama penyimpanan AUTH.")
             .setView(box)
@@ -1224,7 +1382,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showInfoDialog(String title, String message) {
         if (isFinishing() || isDestroyed()) return;
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("OK", null)
@@ -1233,7 +1391,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showDeleteDataConfirmDialog() {
         teardownAutoLogin(); clearWorkflow();
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("Hapus Data")
             .setMessage("Hapus AUTH di folder AUTH eFootball?")
             .setNegativeButton("TIDAK", null)
@@ -1252,7 +1410,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showCreateDialog() {
         teardownAutoLogin(); clearWorkflow(); final EditText input=new EditText(this); input.setInputType(2); input.setSingleLine(true); input.setHint("Jumlah akun");
-        new AlertDialog.Builder(this).setTitle("BUAT AKUN BARU").setMessage("Mau buat berapa akun?").setView(input).setNegativeButton("BATAL",null).setPositiveButton("LANJUT",(d,w)->{
+        new NeoDialogBuilder(this).setTitle("BUAT AKUN BARU").setMessage("Mau buat berapa akun?").setView(input).setNegativeButton("BATAL",null).setPositiveButton("LANJUT",(d,w)->{
             int count; try{count=Integer.parseInt(input.getText().toString().trim());}catch(Exception e){count=0;}
             if(count<1){updateStatus("Jumlah akun minimal 1.");return;} prefs.edit().putInt(KEY_CREATE_COUNT,count).apply(); showCreateNamingDialog(count);
         }).show();
@@ -1263,7 +1421,7 @@ public class MainActivity extends AppCompatActivity {
             "Angka (1-1000)",
             "Huruf batch (1-10, a1-a10, b1-10, ...)"
         };
-        new AlertDialog.Builder(this).setTitle("Pola nama akun").setItems(modes,(d,which)->{
+        new NeoDialogBuilder(this).setTitle("Pola nama akun").setItems(modes,(d,which)->{
             prefs.edit().putString(KEY_CREATE_NAMING, which==0 ? NAMING_NUMERIC : NAMING_LETTERED).apply();
             showCreateLocationDialog(count);
         }).setNegativeButton("BATAL",null).show();
@@ -1271,7 +1429,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showCreateLocationDialog(int count) {
         DocumentFile existing=getTree(KEY_LIBRARY); String[] items=validDir(existing)?new String[]{"Gunakan folder yang sudah dipilih","Buat folder baru"}:new String[]{"Buat folder baru"};
-        new AlertDialog.Builder(this).setTitle("Lokasi penyimpanan").setItems(items,(d,which)->{if(validDir(existing)&&which==0)startCreateWorkflow(existing,count);else pickCreateFolder.launch(folderPickerIntent());}).setNegativeButton("BATAL",null).show();
+        new NeoDialogBuilder(this).setTitle("Lokasi penyimpanan").setItems(items,(d,which)->{if(validDir(existing)&&which==0)startCreateWorkflow(existing,count);else pickCreateFolder.launch(folderPickerIntent());}).setNegativeButton("BATAL",null).show();
     }
 
     private void startCreateWorkflow(DocumentFile root,int count) {
@@ -1279,7 +1437,7 @@ public class MainActivity extends AppCompatActivity {
         final DocumentFile target=getTarget(); if(!validDir(target)){updateStatus("Pilih folder AUTH eFootball terlebih dahulu.");return;}
         final List<String> categories = getLibraryCategories();
         if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
-        new AlertDialog.Builder(this).setTitle("Kategori akun baru").setItems(categories.toArray(new String[0]),(d,which)->{
+        new NeoDialogBuilder(this).setTitle("Kategori akun baru").setItems(categories.toArray(new String[0]),(d,which)->{
             String category=categories.get(which); DocumentFile categoryDir=categoryRoot(accountRoot,category);
             if(!validDir(categoryDir)){updateStatus("Gagal membuka kategori: "+category);return;}
             prefs.edit().putString(KEY_CREATE_CATEGORY,category).apply();
@@ -1453,7 +1611,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showCreateExitDialog() {
         List<String> names=split(prefs.getString(KEY_CREATE_NAMES,""));int index=prefs.getInt(KEY_CREATE_INDEX,0);if(index>=names.size()){finishCreate();return;}String current=names.get(index);
-        new AlertDialog.Builder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
+        new NeoDialogBuilder(this).setTitle("Akun Baru: "+current).setMessage("Simpan atau hapus AUTH?").setCancelable(false)
                 .setNegativeButton("BATAL",(d,w)->{clearWorkflow();restoreTargetAuthBackup();updateStatus("Pembuatan akun baru dihentikan. AUTH lama dipulihkan bila ada.");})
                 .setNeutralButton("HAPUS",(d,w)->{DocumentFile target=getTarget();DocumentFile auth=target==null?null:target.findFile(AUTH_FILE);if(auth!=null&&auth.isFile())auth.delete();int next=index+1;prefs.edit().putInt(KEY_CREATE_INDEX,next).apply();if(next>=names.size())finishCreate();else launchCurrentCreateAccount();})
                 .setPositiveButton("SIMPAN",(d,w)->{
@@ -1543,7 +1701,7 @@ public class MainActivity extends AppCompatActivity {
         logText.setTextColor(color(R.color.textPrimary));
         logText.setTextIsSelectable(true);
         logText.setPadding(dp(12), dp(12), dp(12), dp(12));
-        logText.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(14)));
+        logText.setBackground(makeDrawableWithStroke(color(R.color.bgBase), color(R.color.divider), dp(10)));
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -1551,10 +1709,10 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(420));
         scrollLp.setMargins(dp(8), dp(4), dp(8), dp(4));
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("LOG AKTIVITAS")
             .setView(scroll)
-            .setNegativeButton("HAPUS LOG", (d, w) -> new AlertDialog.Builder(this)
+            .setNegativeButton("HAPUS LOG", (d, w) -> new NeoDialogBuilder(this)
                 .setTitle("Hapus Log")
                 .setMessage("Hapus semua log aktivitas?")
                 .setNegativeButton("BATAL", null)
@@ -1576,7 +1734,7 @@ public class MainActivity extends AppCompatActivity {
         box.setPadding(dp(8), dp(8), dp(8), dp(4));
         box.addView(input, fullLp());
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("DISCORD WEBHOOK")
             .setMessage("Masukkan URL webhook Discord untuk menerima notifikasi eVault.")
             .setView(box)
@@ -1836,6 +1994,8 @@ public class MainActivity extends AppCompatActivity {
         alFailed.setText("Failed: " + autoLoginFailedCount);
         alRemaining.setText("Remaining: " + Math.max(0, total - done));
         alStatus.setText("Status: " + statusEmoji(status) + " " + status);
+        alStatus.setTextColor(color(AL_STATUS_FAILED.equals(status) ? R.color.dangerText : R.color.primaryDark));
+        alLoading.setVisibility(AL_STATUS_RUNNING.equals(status) ? View.VISIBLE : View.GONE);
 
         boolean paused = AL_STATUS_PAUSED.equals(status) || AL_STATUS_STOPPED.equals(status) || AL_STATUS_FAILED.equals(status);
         alStoppedAt.setVisibility(paused ? View.VISIBLE : View.GONE);
@@ -1885,7 +2045,7 @@ public class MainActivity extends AppCompatActivity {
         String next = prefs.getString(KEY_AL_NEXT_ACCOUNT, "");
         if (next == null || next.isEmpty()) next = "-";
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle(AL_STATUS_PAUSED.equals(status) ? "AUTO LOGIN PAUSED"
                     : AL_STATUS_STOPPED.equals(status) ? "AUTO LOGIN STOPPED" : "RESUME AUTO LOGIN")
             .setMessage(done + " / " + total + " completed\n\nResume from: " + next)
@@ -1980,7 +2140,7 @@ public class MainActivity extends AppCompatActivity {
         List<String> categories = getLibraryCategories();
         if(categories.isEmpty()){updateStatus("Tidak ada kategori akun ditemukan di library.");return;}
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("AUTO LOGIN")
             .setItems(new String[]{
                 "LOGIN SEMUA AKUN",
@@ -2018,7 +2178,7 @@ public class MainActivity extends AppCompatActivity {
             });
             box.addView(b, spacedLp(dp(6)));
         }
-        final AlertDialog dlg = new AlertDialog.Builder(this)
+        final AlertDialog dlg = new NeoDialogBuilder(this)
             .setTitle("PILIH KATEGORI")
             .setView(box)
             .setNegativeButton("BATAL", null)
@@ -2159,7 +2319,7 @@ public class MainActivity extends AppCompatActivity {
         prefs.edit().putBoolean(KEY_AL_WAITING_CONFIRMATION, true).putString(KEY_AL_EFOOTBALL_STATE, AL_GAME_WAITING).apply();
         updateWebhookProgress(AL_STATUS_WAITING);
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("KONFIRMASI LOGIN")
             .setMessage("Apakah akun " + account.name + " sudah berhasil login di eFootball?")
             .setCancelable(false)
@@ -2179,7 +2339,7 @@ public class MainActivity extends AppCompatActivity {
         refreshAutoLoginScreen();
         updateWebhookProgress(AL_STATUS_RUNNING);
 
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("LANJUT AUTO LOGIN?")
             .setMessage("Akun " + account.name + " sudah berhasil login dan tercatat hari ini.\n\nLanjut ke akun berikutnya?")
             .setCancelable(false)
@@ -2476,7 +2636,7 @@ public class MainActivity extends AppCompatActivity {
             }catch(Exception ignored){}
             labels[n]=(pkg.equals(selected) ? "✓ " : "")+appLabel+"\n"+pkg;
         }
-        new AlertDialog.Builder(this)
+        new NeoDialogBuilder(this)
             .setTitle("PILIH EFOOTBALL CLONE")
             .setItems(labels,(dialog,which)->{
                 String pkg=clones.get(which);
@@ -2574,7 +2734,20 @@ public class MainActivity extends AppCompatActivity {
     private void setMode(String mode){prefs.edit().putString(KEY_MODE,mode).apply();}
     private void clearWorkflow(){workflowLaunchPending=false;prefs.edit().putString(KEY_MODE,MODE_NONE).remove(KEY_CREATE_NAMES).remove(KEY_CREATE_INDEX).remove(KEY_CREATE_COUNT).remove(KEY_CREATE_CATEGORY).remove(KEY_CREATE_NAMING).apply();}
     private List<String> split(String value){return value==null||value.isEmpty()?Collections.emptyList():Arrays.asList(value.split("\\|",-1));}
-    private void updateStatus(String s){if(status!=null)status.post(() -> status.setText(s));}
+    private void updateStatus(String message) {
+        if (status == null) return;
+        status.post(() -> {
+            if (status == null) return;
+            status.setText(message);
+            status.setContentDescription(message);
+            String lower = message.toLowerCase(Locale.ROOT);
+            boolean success = message.startsWith("✓");
+            boolean error = !success && (lower.contains("gagal") || lower.contains("tidak valid") || lower.contains("failed"));
+            status.setTextColor(color(error ? R.color.dangerText : success ? R.color.successText : R.color.textSecondary));
+            status.setBackgroundColor(color(error ? R.color.dangerBg : success ? R.color.successBg : R.color.bgBase));
+            refreshSelectedAccountCard();
+        });
+    }
 
     /** Runs blocking storage work off the UI thread, then delivers the result on the UI thread. */
     private <T> void runOnIo(java.util.concurrent.Callable<T> work, java.util.function.Consumer<T> onDone){

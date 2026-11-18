@@ -2,6 +2,18 @@
 
 All notable changes to eVault are documented here.
 
+## [1.5.0] — 2026-11-18
+
+### Modern Neo-Brutalist Blue
+
+- Native Android UI with centralized blue color tokens, 2dp black borders, 4dp hard shadows, and 10dp corners.
+- No-scroll Home with three AUTH actions in a row, adaptive compact portrait/two-column landscape, and accessible native buttons.
+- Reopenable Setup under Settings, plus AUTH, Switch Account, Additional Options, and About pages.
+- Shared button, input, card, icon and dialog styling; press, focus, disabled, progress, success and error feedback.
+- AUTH storage, clone detection, validation, and Auto Login handlers retained.
+- Android emulator coverage for Home bounds/touch targets and reopening Setup, including enlarged font settings.
+- Version code **34**, same application ID and stable signing key.
+
 ## [1.4.1] — 2026-11-17
 
 ### Figma UI redesign
