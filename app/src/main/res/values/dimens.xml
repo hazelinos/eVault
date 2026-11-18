@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="space_1">8dp</dimen>
+    <dimen name="space_2">16dp</dimen>
+    <dimen name="space_3">24dp</dimen>
+    <dimen name="space_4">32dp</dimen>
+    <dimen name="neo_border">2dp</dimen>
+    <dimen name="neo_radius">10dp</dimen>
+    <dimen name="neo_shadow">4dp</dimen>
+    <dimen name="touch_target">48dp</dimen>
+</resources>
