@@ -101,8 +101,14 @@ public class NeoUiTest {
         try(FileOutputStream out=new FileOutputStream(new File(folder,name+".png"))){bitmap.compress(Bitmap.CompressFormat.PNG,100,out);}
         // Pipe image bytes to shell-owned storage; scoped storage blocks shell reads of app files.
         if (android.os.Build.VERSION.SDK_INT >= 31) {
+            try(java.io.InputStream mkdir = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                    InstrumentationRegistry.getInstrumentation().getUiAutomation()
+                            .executeShellCommand("mkdir -p /data/local/tmp/evault-ui"))) {
+                while(mkdir.read() != -1) { /* Await directory creation. */ }
+            }
+            // UiAutomation executes an argv command, not a shell expression with redirection.
             android.os.ParcelFileDescriptor[] descriptors = InstrumentationRegistry.getInstrumentation()
-                    .getUiAutomation().executeShellCommandRw("mkdir -p /data/local/tmp/evault-ui && cat > /data/local/tmp/evault-ui/" + name + ".png");
+                    .getUiAutomation().executeShellCommandRw("dd of=/data/local/tmp/evault-ui/" + name + ".png");
             try(java.io.OutputStream output = new android.os.ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1])) {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);
             }
