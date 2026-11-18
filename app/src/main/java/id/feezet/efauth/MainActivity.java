@@ -2741,8 +2741,8 @@ public class MainActivity extends AppCompatActivity {
             status.setText(message);
             status.setContentDescription(message);
             String lower = message.toLowerCase(Locale.ROOT);
-            boolean error = lower.contains("gagal") || lower.contains("tidak valid") || lower.contains("failed");
             boolean success = message.startsWith("✓");
+            boolean error = !success && (lower.contains("gagal") || lower.contains("tidak valid") || lower.contains("failed"));
             status.setTextColor(color(error ? R.color.dangerText : success ? R.color.successText : R.color.textSecondary));
             status.setBackgroundColor(color(error ? R.color.dangerBg : success ? R.color.successBg : R.color.bgBase));
             refreshSelectedAccountCard();

@@ -18,6 +18,7 @@ public final class NeoButton extends AppCompatButton {
         setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         setGravity(Gravity.CENTER);
         setStateListAnimator(null);
+        setElevation(0f);
         setMinWidth(0);
         setMinimumWidth(0);
         setMinHeight(px(48));
