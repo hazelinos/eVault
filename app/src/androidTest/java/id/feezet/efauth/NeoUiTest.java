@@ -64,6 +64,78 @@ public class NeoUiTest {
             scenario.onActivity(activity -> assertTrue(activity.findViewById(android.R.id.content).findViewWithTag("home").isShown()));
         }
     }
+    @Test public void inlineLibraryScrollsAndSelectionDoesNotCopyAuth() throws Exception {
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            scenario.onActivity(activity -> {
+                try {
+                    java.lang.reflect.Field field=MainActivity.class.getDeclaredField("accounts");
+                    field.setAccessible(true);
+                    @SuppressWarnings("unchecked") java.util.ArrayList<MainActivity.Account> accounts=
+                            (java.util.ArrayList<MainActivity.Account>)field.get(activity);
+                    accounts.clear();
+                    for(int n=1;n<=24;n++){
+                        File file=new File(activity.getCacheDir(),"ui-auth-"+n+".dat");
+                        try(FileOutputStream out=new FileOutputStream(file)){out.write(new byte[]{1,2,3,4});}
+                        accounts.add(new MainActivity.Account(n<=12?"Utama":"Cadangan",
+                                String.format(java.util.Locale.ROOT,"Akun %02d",n),
+                                androidx.documentfile.provider.DocumentFile.fromFile(file)));
+                    }
+                    java.lang.reflect.Method refresh=MainActivity.class.getDeclaredMethod("refreshSelectedAccountCard");
+                    refresh.setAccessible(true);refresh.invoke(activity);
+                } catch(Exception error) { throw new AssertionError(error); }
+            });
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            scenario.onActivity(activity -> {
+                android.widget.ListView list=activity.findViewById(android.R.id.content).findViewWithTag("home-library");
+                assertTrue(list.isShown());
+                assertTrue("Long library must scroll inside its own viewport",list.canScrollVertically(1));
+                assertFalse("Category headings are not selectable",list.getAdapter().isEnabled(0));
+                MainActivity.Account account=(MainActivity.Account)list.getAdapter().getItem(1);
+                list.performItemClick(list.getAdapter().getView(1,null,list),1,1);
+                try {
+                    java.lang.reflect.Field selected=MainActivity.class.getDeclaredField("selectedAccount");selected.setAccessible(true);
+                    assertSame(account,selected.get(activity));
+                    assertTrue(list.getAdapter().getView(1,null,list).isSelected());
+                    assertEquals(4,new File(activity.getCacheDir(),"ui-auth-1.dat").length());
+                    assertFalse(activity.getSharedPreferences("paths",0).contains("target"));
+                } catch(Exception error) { throw new AssertionError(error); }
+                assertTrue(activity.findViewById(android.R.id.content).findViewWithTag("home").isShown());
+            });
+            screenshot("home-library");
+        }
+    }
+
+    @Test public void settingsContainsFourEntriesAndDelayPersists() throws Exception {
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            scenario.onActivity(activity -> click(activity,"Pengaturan"));
+            scenario.onActivity(activity -> {
+                View settings=activity.findViewById(android.R.id.content).findViewWithTag("settings");
+                assertEquals("Only four settings entries plus Back",5,countButtons(settings));
+                assertNotNull(findButton(settings,"Setup  ›"));
+                assertNotNull(findButton(settings,"Delay masuk eFootball"));
+                assertNotNull(findButton(settings,"Webhook"));
+                assertNotNull(findButton(settings,"Tentang eVault"));
+                assertNull(findButton(settings,"Kelola AUTH"));
+                click(activity,"Delay masuk eFootball");
+                View detail=activity.findViewById(android.R.id.content).findViewWithTag("detail");
+                android.widget.EditText input=findInput(detail);
+                assertNotNull(input);input.setText("7");
+                click(activity,"Pengaturan");
+                assertEquals(7,activity.getSharedPreferences("paths",0).getInt("KEY_AUTO_LOGIN_DELAY",0));
+                click(activity,"Delay masuk eFootball");
+                assertEquals("7",findInput(activity.findViewById(android.R.id.content).findViewWithTag("detail")).getText().toString());
+                click(activity,"Pengaturan");
+                click(activity,"Kembali");
+            });
+        }
+    }
+
+    private static android.widget.EditText findInput(View view){
+        if(view instanceof android.widget.EditText)return (android.widget.EditText)view;
+        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){android.widget.EditText input=findInput(group.getChildAt(i));if(input!=null)return input;}}
+        return null;
+    }
+
     private static void click(MainActivity activity,String text){
         Button button=findButton(activity.findViewById(android.R.id.content),text);
         assertNotNull("Missing visible action: "+text,button);button.performClick();

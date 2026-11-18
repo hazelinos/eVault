@@ -17,6 +17,7 @@ public final class NeoIcons extends Drawable {
         String data;
         switch (name) {
             case "switch": data = "M4,7 L20,7 M15,2 L20,7 L15,12 M20,17 L4,17 M9,12 L4,17 L9,22"; break;
+            case "delete": data = "M3,6 L21,6 M9,6 L9,3 L15,3 L15,6 M5,6 L6,21 L18,21 L19,6 M10,10 L10,17 M14,10 L14,17"; break;
             case "add": data = "M12,4 L12,20 M4,12 L20,12"; break;
             case "save": data = "M4,3 L17,3 L21,7 L21,21 L3,21 L3,3 Z M7,3 L7,9 L16,9 L16,3 M7,21 L7,14 L17,14 L17,21"; break;
             case "play": data = "M8,5 L20,12 L8,19 Z"; break;

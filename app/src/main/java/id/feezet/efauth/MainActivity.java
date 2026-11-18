@@ -149,8 +149,11 @@ public class MainActivity extends AppCompatActivity {
     private View settingsScreen;
     private View setupScreen;
     private View detailScreen;
-    private TextView selectedAccountName;
-    private TextView selectedAccountDetail;
+    private TextView homeLibraryHeading;
+    private TextView homeSelectionSummary;
+    private ListView homeAccountList;
+    private BaseAdapter homeAccountAdapter;
+    private final ArrayList<Object> homeLibraryItems = new ArrayList<>();
 
     // ---- Auto Login progress screen ----
     private View mainScreen;
@@ -367,18 +370,41 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout selected = card();
         selected.setPadding(dp(16), dp(12), dp(20), dp(16));
         selected.setBackground(neoSurface(R.color.primary, false, 4));
-        selected.addView(uiText("AKUN TERPILIH", 11, R.color.white, true), fullLp());
-        selectedAccountName = uiText("Pilih akun", 28, R.color.white, true);
-        selectedAccountName.setMaxLines(1);
-        selectedAccountName.setEllipsize(TextUtils.TruncateAt.END);
-        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                selectedAccountName, 18, 30, 1, TypedValue.COMPLEX_UNIT_SP);
-        selected.addView(selectedAccountName, new LinearLayout.LayoutParams(-1, 0, 1f));
-        selectedAccountDetail = uiText("Buka library untuk memilih akun.", 12, R.color.white, false);
-        selectedAccountDetail.setMaxLines(2);
-        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                selectedAccountDetail, 10, 13, 1, TypedValue.COMPLEX_UNIT_SP);
-        selected.addView(selectedAccountDetail, fullLp());
+        homeLibraryHeading = uiText("AUTH LIBRARY  ·  0 AKUN   ⌕", 12, R.color.white, true);
+        homeLibraryHeading.setMinHeight(dp(24));
+        homeLibraryHeading.setGravity(Gravity.CENTER_VERTICAL);
+        homeLibraryHeading.setContentDescription("Cari akun di AUTH Library");
+        homeLibraryHeading.setOnClickListener(v -> showAccountListDialog());
+        selected.addView(homeLibraryHeading, fullLp());
+        FrameLayout libraryViewport = new FrameLayout(this);
+        homeAccountList = new ListView(this);
+        homeAccountList.setTag("home-library");
+        homeAccountList.setContentDescription("Daftar akun AUTH Library");
+        homeAccountList.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        homeAccountList.setDividerHeight(dp(8));
+        homeAccountList.setBackgroundColor(Color.TRANSPARENT);
+        homeAccountList.setClipToPadding(false);
+        homeAccountList.setPadding(0, dp(4), 0, dp(4));
+        homeAccountList.setAdapter(homeAccountAdapter = accountListAdapter(homeLibraryItems, true));
+        homeAccountList.setOnItemClickListener((parent, view, position, id) -> {
+            Object item = homeLibraryItems.get(position);
+            if (item instanceof Account) {
+                selectedAccount = (Account) item;
+                notifySelectedAccount(selectedAccount);
+            }
+        });
+        libraryViewport.addView(homeAccountList, new FrameLayout.LayoutParams(-1, -1));
+        TextView empty = uiText("Belum ada akun.\nPilih folder AUTH Library di Setup.", 14, R.color.white, false);
+        empty.setGravity(Gravity.CENTER);
+        empty.setTag("home-library-empty");
+        empty.setOnClickListener(v -> { toggleSetupVisibility(); openSetup(); });
+        libraryViewport.addView(empty, new FrameLayout.LayoutParams(-1, -1));
+        homeAccountList.setEmptyView(empty);
+        selected.addView(libraryViewport, new LinearLayout.LayoutParams(-1, 0, 1f));
+        homeSelectionSummary = uiText("Ketuk akun untuk memilih.", 11, R.color.white, false);
+        homeSelectionSummary.setMaxLines(1);
+        homeSelectionSummary.setEllipsize(TextUtils.TruncateAt.END);
+        selected.addView(homeSelectionSummary, fullLp());
         selected.addView(iconButton("Switch Akun", "switch", false, v -> switchSelected()),
                 new LinearLayout.LayoutParams(-1, dp(48)));
         home.addView(selected);
@@ -392,7 +418,7 @@ public class MainActivity extends AppCompatActivity {
         auth.setContentDescription("Kelola AUTH");
         auth.setOrientation(LinearLayout.HORIZONTAL);
         auth.setBaselineAligned(false);
-        Button list = iconButton("Daftar\nAkun", "library", false, v -> showAccountListDialog());
+        Button list = iconButton("Hapus AUTH\nterpasang", "delete", false, v -> showDeleteDataConfirmDialog());
         Button create = iconButton("Buat Akun\nBaru", "add", false, v -> showCreateDialog());
         Button save = iconButton("Simpan\nAUTH", "save", false, v -> showSaveAuthDialog());
         // Stack icons above labels so all three native touch targets remain wide enough.
@@ -443,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
         setupScreen.setVisibility(View.GONE);
         refreshGamePackageStatus();
 
-        // Persistent delay editor is reused by the additional-options page.
+        // Persistent editor for the existing Auto Login delay setting.
         autoLoginDelayEdit = new EditText(this);
         autoLoginDelayEdit.setInputType(2);
         autoLoginDelayEdit.setSingleLine(true);
@@ -458,9 +484,8 @@ public class MainActivity extends AppCompatActivity {
         settings.addView(uiText("Pengaturan", 32, R.color.textPrimary, true), spacedLp(dp(24)));
         settings.addView(uiText("Atur dan kelola eVault sesuai kebutuhan.", 14, R.color.textSecondary, false), spacedLp(dp(8)));
         settings.addView(menuButton("Setup", "Konfigurasi data eFootball.", "settings", true, v -> openSetup()), spacedLp(dp(24)));
-        settings.addView(menuButton("Kelola AUTH", "Daftar, buat, dan simpan akun.", "library", false, v -> openAuthActions()), spacedLp(dp(16)));
-        settings.addView(menuButton("Switch Akun", "Pilih akun yang ingin digunakan.", "switch", false, v -> openSwitchActions()), spacedLp(dp(16)));
-        settings.addView(menuButton("Opsi Tambahan", "Auto Login, Discord, dan log aktivitas.", "auto", false, v -> openAdditionalOptions()), spacedLp(dp(16)));
+        settings.addView(menuButton("Delay masuk eFootball", "Jeda antar akun Auto Login.", "auto", false, v -> openDelaySettings()), spacedLp(dp(16)));
+        settings.addView(menuButton("Webhook", "Notifikasi dan integrasi Discord.", "settings", false, v -> showDiscordWebhookDialog()), spacedLp(dp(16)));
         settings.addView(menuButton("Tentang eVault", "Versi dan informasi aplikasi.", "info", false, v -> openAbout()), spacedLp(dp(16)));
         settingsScreen = pageScroll(settings);
         settingsScreen.setTag("settings");
@@ -564,31 +589,15 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void openAuthActions() {
-        LinearLayout page = detailPage("Kelola AUTH", "Semua data akun tetap tersimpan di folder pilihanmu.");
-        page.addView(iconButton("Daftar Akun", "library", false, v -> showAccountListDialog()), spacedLp(dp(24)));
-        page.addView(iconButton("Buat Akun Baru", "add", false, v -> showCreateDialog()), spacedLp(dp(16)));
-        page.addView(iconButton("Simpan AUTH", "save", true, v -> showSaveAuthDialog()), spacedLp(dp(16)));
-    }
-
-    private void openSwitchActions() {
-        LinearLayout page = detailPage("Switch Akun", "Pilih akun dari library, lalu pasang AUTH akun tersebut.");
-        page.addView(secondaryButton("Pilih akun dari library", v -> showAccountListDialog()), spacedLp(dp(24)));
-        page.addView(iconButton("Switch Akun", "switch", true, v -> switchSelected()), spacedLp(dp(16)));
-    }
-
-    private void openAdditionalOptions() {
-        LinearLayout page = detailPage("Opsi Tambahan", "Atur Auto Login dan integrasi yang sudah tersedia.");
+    private void openDelaySettings() {
+        LinearLayout page = detailPage("Delay masuk eFootball", "Jeda antar akun Auto Login sebelum eFootball dibuka kembali.");
         LinearLayout options = card();
-        options.addView(uiText("Jeda Auto Login (detik)", 14, R.color.textPrimary, true), fullLp());
+        options.addView(uiText("Delay (detik)", 14, R.color.textPrimary, true), fullLp());
         if (autoLoginDelayEdit.getParent() instanceof ViewGroup)
             ((ViewGroup) autoLoginDelayEdit.getParent()).removeView(autoLoginDelayEdit);
         options.addView(autoLoginDelayEdit, spacedLp(dp(8)));
-        options.addView(iconButton("Mulai Auto Login", "auto", true, v -> startAutoLogin()), spacedLp(dp(16)));
+        options.addView(uiText("Perubahan disimpan saat kembali. Jeda Auto Login berlaku antara 2–120 detik.", 12, R.color.textSecondary, false), spacedLp(dp(16)));
         page.addView(options, spacedLp(dp(24)));
-        page.addView(secondaryButton("Pengaturan Discord", v -> showDiscordWebhookDialog()), spacedLp(dp(16)));
-        page.addView(iconButton("Log Aktivitas", "log", false, v -> showActivityLogDialog()), spacedLp(dp(16)));
-        page.addView(dangerButton("Hapus data AUTH", v -> showDeleteDataConfirmDialog()), spacedLp(dp(16)));
     }
 
     private void openAbout() {
@@ -643,14 +652,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshSelectedAccountCard() {
-        if (selectedAccountName == null) return;
+        if (homeAccountAdapter == null) return;
+        homeLibraryHeading.setText("AUTH LIBRARY  ·  " + accounts.size() + " AKUN   ⌕");
+        homeLibraryItems.clear();
+        String lastCategory = null;
+        for (Account account : accounts) {
+            if (!account.category.equals(lastCategory)) {
+                homeLibraryItems.add(account.category);
+                lastCategory = account.category;
+            }
+            homeLibraryItems.add(account);
+        }
         Account account = selectedAccount;
-        selectedAccountName.setText(account == null ? "Pilih akun" : account.name);
-        selectedAccountName.setContentDescription(account == null ? "Belum ada akun terpilih" : account.name);
-        selectedAccountDetail.setText(account == null
-                ? "Buka library untuk memilih akun."
-                : account.category + " · " + (isLoginVerifiedToday(account)
-                    ? "Sudah login hari ini" : "Belum terverifikasi hari ini"));
+        String selection = account == null ? "Ketuk akun untuk memilih."
+                : "Dipilih: " + account.name;
+        homeSelectionSummary.setText(selection);
+        homeSelectionSummary.setContentDescription(selection);
+        homeAccountAdapter.notifyDataSetChanged();
     }
 
     // ================= Auto Login progress screen =================
@@ -974,6 +992,58 @@ public class MainActivity extends AppCompatActivity {
         refreshSelectedAccountCard();
     }
 
+    private BaseAdapter accountListAdapter(ArrayList<Object> items, boolean onHome) {
+        return new BaseAdapter() {
+            @Override public int getCount() { return items.size(); }
+            @Override public Object getItem(int position) { return items.get(position); }
+            @Override public long getItemId(int position) { return position; }
+            @Override public int getViewTypeCount() { return 2; }
+            @Override public int getItemViewType(int position) { return items.get(position) instanceof Account ? 1 : 0; }
+            @Override public boolean areAllItemsEnabled() { return false; }
+            @Override public boolean isEnabled(int position) { return items.get(position) instanceof Account; }
+
+            @Override public View getView(int position, View convertView, ViewGroup parent) {
+                Object item = items.get(position);
+                if (item instanceof String) {
+                    TextView heading = uiText(((String) item).toUpperCase(Locale.ROOT), 11,
+                            onHome ? R.color.white : R.color.textSecondary, true);
+                    heading.setPadding(dp(8), dp(4), dp(8), dp(4));
+                    androidx.core.view.ViewCompat.setAccessibilityHeading(heading, true);
+                    return heading;
+                }
+                Account account = (Account) item;
+                boolean chosen = selectedAccount != null && accountKey(selectedAccount).equals(accountKey(account));
+                LinearLayout row = new LinearLayout(MainActivity.this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(12), dp(8), dp(16), dp(12));
+                row.setMinimumHeight(dp(64));
+                row.setBackground(neoSurface(chosen ? R.color.lightBlue : R.color.surface, true, 4));
+                LinearLayout details = new LinearLayout(MainActivity.this);
+                details.setOrientation(LinearLayout.VERTICAL);
+                TextView name = uiText(account.name, 15, R.color.textPrimary, true);
+                name.setMaxLines(1);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                details.addView(name, fullLp());
+                String verification = isLoginVerifiedToday(account)
+                        ? "Sudah login hari ini" : "Belum terverifikasi hari ini";
+                TextView verified = uiText(verification, 11, R.color.textSecondary, false);
+                verified.setMaxLines(1);
+                verified.setEllipsize(TextUtils.TruncateAt.END);
+                details.addView(verified, fullLp());
+                row.addView(details, new LinearLayout.LayoutParams(0, -2, 1f));
+                TextView marker = uiText(chosen ? "✓" : "›", 20, R.color.primaryDark, true);
+                marker.setGravity(Gravity.CENTER);
+                row.addView(marker, new LinearLayout.LayoutParams(dp(32), -2));
+                row.setSelected(chosen);
+                row.setContentDescription(account.category + ", " + account.name + ", " + verification
+                        + (chosen ? ", terpilih" : ""));
+                // ListView owns clicks so selection never dismisses the inline Home library.
+                return row;
+            }
+        };
+    }
+
     private void showAccountListDialog() {
         if (accounts.isEmpty()) {
             showInfoDialog("DAFTAR AKUN", "Belum ada akun di AUTH Library.");
@@ -1021,75 +1091,7 @@ public class MainActivity extends AppCompatActivity {
             }
         };
 
-        BaseAdapter adapter = new BaseAdapter() {
-            public int getCount() { return visibleItems.size(); }
-            public Object getItem(int position) { return visibleItems.get(position); }
-            public long getItemId(int position) { return position; }
-
-            public View getView(int position, View convertView, ViewGroup parent) {
-                Object item = visibleItems.get(position);
-
-                if (item instanceof String) {
-                    TextView header = new TextView(MainActivity.this);
-                    header.setText(((String) item).toUpperCase(Locale.ROOT));
-                    header.setTextSize(11);
-                    header.setTypeface(Typeface.DEFAULT_BOLD);
-                    header.setTextColor(color(R.color.textSecondary));
-                    header.setGravity(Gravity.CENTER_VERTICAL);
-                    header.setPadding(dp(10), dp(8), dp(10), dp(6));
-                    header.setBackgroundColor(Color.TRANSPARENT);
-                    return header;
-                }
-
-                Account account = (Account) item;
-                LinearLayout row = new LinearLayout(MainActivity.this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(16), dp(14), dp(16), dp(10));
-                row.setMinimumHeight(dp(76));
-                row.setBackground(neoSurface(selectedAccount == account ? R.color.lightBlue : R.color.surface, true, 4));
-
-                TextView marker = new TextView(MainActivity.this);
-                marker.setText("›");
-                marker.setTextSize(18);
-                marker.setTextColor(color(R.color.textSecondary));
-                marker.setGravity(Gravity.CENTER);
-                row.addView(marker, new LinearLayout.LayoutParams(dp(28), dp(44)));
-
-                TextView name = new TextView(MainActivity.this);
-                name.setText(account.name);
-                name.setTextSize(15);
-                name.setTextColor(color(R.color.textPrimary));
-                name.setGravity(Gravity.CENTER_VERTICAL);
-                name.setTypeface(Typeface.DEFAULT_BOLD);
-                LinearLayout details = new LinearLayout(MainActivity.this);
-                details.setOrientation(LinearLayout.VERTICAL);
-                details.addView(name, fullLp());
-                details.addView(uiText(isLoginVerifiedToday(account)
-                        ? "Sudah login hari ini" : "Belum terverifikasi hari ini",
-                        12, R.color.textSecondary, false), spacedLp(dp(4)));
-                row.addView(details, new LinearLayout.LayoutParams(0, -2, 1f));
-
-                if (selectedAccount == account) {
-                    TextView selected = new TextView(MainActivity.this);
-                    selected.setText("✓");
-                    selected.setTextSize(15);
-                    selected.setTextColor(color(R.color.primaryDark));
-                    selected.setGravity(Gravity.CENTER);
-                    row.addView(selected, new LinearLayout.LayoutParams(dp(28), dp(44)));
-                }
-
-                row.setOnClickListener(v -> {
-                    selectedAccount = account;
-                    notifySelectedAccount(account);
-                    View root = v.getRootView();
-                    Object tag = root.getTag();
-                    if (tag instanceof AlertDialog) ((AlertDialog) tag).dismiss();
-                });
-
-                return row;
-            }
-        };
+        BaseAdapter adapter = accountListAdapter(visibleItems, false);
 
         rebuild.run();
         listView.setAdapter(adapter);
@@ -1392,8 +1394,8 @@ public class MainActivity extends AppCompatActivity {
     private void showDeleteDataConfirmDialog() {
         teardownAutoLogin(); clearWorkflow();
         new NeoDialogBuilder(this)
-            .setTitle("Hapus Data")
-            .setMessage("Hapus AUTH di folder AUTH eFootball?")
+            .setTitle("Hapus AUTH terpasang?")
+            .setMessage("Hapus AUTH yang sedang terpasang di folder eFootball? Akun di library tetap tersimpan.")
             .setNegativeButton("TIDAK", null)
             .setPositiveButton("YA", (d,w) -> executeDeleteData())
             .show();

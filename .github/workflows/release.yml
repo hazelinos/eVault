@@ -48,9 +48,9 @@ jobs:
       - name: Verify release version
         shell: bash
         run: |
-          grep -q 'versionCode = 34' app/build.gradle.kts
-          grep -q 'versionName = "1.5.0"' app/build.gradle.kts
-          echo 'Version verified: 1.5.0 (34)'
+          grep -q 'versionCode = 35' app/build.gradle.kts
+          grep -q 'versionName = "1.5.1"' app/build.gradle.kts
+          echo 'Version verified: 1.5.1 (35)'
 
       - name: Build installable APK
         run: gradle assembleDebug lintDebug --stacktrace
@@ -59,13 +59,13 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.5.0.apk
+          cp "$apk" eVault-v1.5.1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.5.0
-          path: eVault-v1.5.0.apk
+          name: eVault-v1.5.1
+          path: eVault-v1.5.1.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -74,20 +74,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(cat <<'EOF'
-          eVault v1.5.0 — Neo-Brutalist Blue.
+          eVault v1.5.1 — Library langsung di Home.
 
-          - UI Android native dengan warna biru, border hitam tebal, dan hard shadow.
-          - Home tanpa scroll, tiga aksi AUTH sejajar, dan layout adaptif portrait/landscape.
-          - Pengaturan terpisah: Setup dapat dibuka kembali kapan saja.
-          - Komponen tombol, kartu, input, ikon, dialog, dan status yang konsisten.
-          - Alur AUTH, clone selection, validasi, dan Auto Login dipertahankan.
+          - Kotak biru menampilkan library akun per kategori, status verifikasi, dan akun terpilih.
+          - Daftar akun bisa digulir di dalam kotak biru; Home tetap tanpa scroll.
+          - Tombol Daftar Akun diganti Hapus AUTH terpasang, dengan konfirmasi.
+          - Pengaturan diringkas: Setup, Delay masuk eFootball, Webhook, dan Tentang.
+          - Alur Switch, simpan/buat AUTH, dan Auto Login dipertahankan.
 
           APK memakai application ID dan signing key yang sama dengan versi sebelumnya.
           EOF
           )
-          if gh release view v1.5.0 >/dev/null 2>&1; then
-            gh release edit v1.5.0 --title "eVault v1.5.0" --notes "$NOTES" --latest
+          if gh release view v1.5.1 >/dev/null 2>&1; then
+            gh release edit v1.5.1 --title "eVault v1.5.1" --notes "$NOTES" --latest
           else
-            gh release create v1.5.0 --target "${{ github.sha }}" --title "eVault v1.5.0" --notes "$NOTES" --latest
+            gh release create v1.5.1 --target "${{ github.sha }}" --title "eVault v1.5.1" --notes "$NOTES" --latest
           fi
-          gh release upload v1.5.0 eVault-v1.5.0.apk --clobber
+          gh release upload v1.5.1 eVault-v1.5.1.apk --clobber
