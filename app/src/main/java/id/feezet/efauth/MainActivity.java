@@ -385,6 +385,8 @@ public class MainActivity extends AppCompatActivity {
 
         TextView authTitle = uiText("Kelola AUTH", 20, R.color.textPrimary, true);
         authTitle.setGravity(Gravity.CENTER_VERTICAL);
+        androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                authTitle, 14, 20, 1, TypedValue.COMPLEX_UNIT_SP);
         home.addView(authTitle);
         LinearLayout auth = new LinearLayout(this);
         auth.setContentDescription("Kelola AUTH");
