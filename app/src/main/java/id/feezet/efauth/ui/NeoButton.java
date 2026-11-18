@@ -29,7 +29,7 @@ public final class NeoButton extends AppCompatButton {
     }
     private int px(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     public void setTone(int background, int foreground) {
-        setSupportBackgroundTintList(null);
+        androidx.core.view.ViewCompat.setBackgroundTintList(this, null);
         setBackground(new NeoSurface(getContext(),
                 background, getContext().getColor(R.color.border), true, 4));
         setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},

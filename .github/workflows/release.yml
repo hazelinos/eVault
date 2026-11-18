@@ -48,9 +48,9 @@ jobs:
       - name: Verify release version
         shell: bash
         run: |
-          grep -q 'versionCode = 33' app/build.gradle.kts
-          grep -q 'versionName = "1.4.1"' app/build.gradle.kts
-          echo 'Version verified: 1.4.1 (33)'
+          grep -q 'versionCode = 34' app/build.gradle.kts
+          grep -q 'versionName = "1.5.0"' app/build.gradle.kts
+          echo 'Version verified: 1.5.0 (34)'
 
       - name: Build installable APK
         run: gradle assembleDebug lintDebug --stacktrace
@@ -59,13 +59,13 @@ jobs:
         run: |
           apk=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n1)
           test -n "$apk"
-          cp "$apk" eVault-v1.4.1.apk
+          cp "$apk" eVault-v1.5.0.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: eVault-v1.4.1
-          path: eVault-v1.4.1.apk
+          name: eVault-v1.5.0
+          path: eVault-v1.5.0.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -74,19 +74,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES=$(cat <<'EOF'
-          eVault v1.4.1 — pembaruan tampilan.
-          
-          - Desain Figma: tema terang dengan aksen lime, kartu akun terpilih, dan tombol membulat.
-          - Halaman Pengaturan terpisah, status verifikasi di library, dan ringkasan progres Auto Login.
-          - Fungsi AUTH, clone selection, dan Auto Login tetap dipertahankan.
-          - Kompatibilitas warna navigation bar untuk Android 8.0 dan yang lebih baru.
-          
+          eVault v1.5.0 — Neo-Brutalist Blue.
+
+          - UI Android native dengan warna biru, border hitam tebal, dan hard shadow.
+          - Home tanpa scroll, tiga aksi AUTH sejajar, dan layout adaptif portrait/landscape.
+          - Pengaturan terpisah: Setup dapat dibuka kembali kapan saja.
+          - Komponen tombol, kartu, input, ikon, dialog, dan status yang konsisten.
+          - Alur AUTH, clone selection, validasi, dan Auto Login dipertahankan.
+
           APK memakai application ID dan signing key yang sama dengan versi sebelumnya.
           EOF
           )
-          if gh release view v1.4.1 >/dev/null 2>&1; then
-            gh release edit v1.4.1 --title "eVault v1.4.1" --notes "$NOTES" --latest
+          if gh release view v1.5.0 >/dev/null 2>&1; then
+            gh release edit v1.5.0 --title "eVault v1.5.0" --notes "$NOTES" --latest
           else
-            gh release create v1.4.1 --target "${{ github.sha }}" --title "eVault v1.4.1" --notes "$NOTES" --latest
+            gh release create v1.5.0 --target "${{ github.sha }}" --title "eVault v1.5.0" --notes "$NOTES" --latest
           fi
-          gh release upload v1.4.1 eVault-v1.4.1.apk --clobber
+          gh release upload v1.5.0 eVault-v1.5.0.apk --clobber
