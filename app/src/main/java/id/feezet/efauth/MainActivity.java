@@ -391,6 +391,7 @@ public class MainActivity extends AppCompatActivity {
         LinearLayout auth = new LinearLayout(this);
         auth.setContentDescription("Kelola AUTH");
         auth.setOrientation(LinearLayout.HORIZONTAL);
+        auth.setBaselineAligned(false);
         Button list = iconButton("Daftar\nAkun", "library", false, v -> showAccountListDialog());
         Button create = iconButton("Buat Akun\nBaru", "add", false, v -> showCreateDialog());
         Button save = iconButton("Simpan\nAUTH", "save", false, v -> showSaveAuthDialog());
@@ -408,6 +409,7 @@ public class MainActivity extends AppCompatActivity {
         }));
         LinearLayout secondary = new LinearLayout(this);
         secondary.setOrientation(LinearLayout.HORIZONTAL);
+        secondary.setBaselineAligned(false);
         secondary.addView(iconButton("Auto Login", "auto", false, v -> startAutoLogin()), weightLp(dp(4), 0));
         secondary.addView(iconButton("Pengaturan", "settings", false, v -> toggleSetupVisibility()), weightLp(dp(4), 1));
         home.addView(secondary);
@@ -752,6 +754,7 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.setBaselineAligned(false);
         row1.addView(alPauseButton, weightLp(dp(8), 0));
         row1.addView(alStopButton, weightLp(dp(8), 1));
         LinearLayout.LayoutParams row1Lp = fullLp();
@@ -760,6 +763,7 @@ public class MainActivity extends AppCompatActivity {
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setBaselineAligned(false);
         row2.addView(alContinueButton, weightLp(dp(8), 0));
         row2.addView(alExitButton, weightLp(dp(8), 1));
         LinearLayout.LayoutParams row2Lp = fullLp();

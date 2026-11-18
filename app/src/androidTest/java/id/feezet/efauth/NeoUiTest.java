@@ -102,7 +102,7 @@ public class NeoUiTest {
         bitmap.recycle();
         // AGP may uninstall the tested app, so keep evidence outside its sandbox.
         try(android.os.ParcelFileDescriptor descriptor = InstrumentationRegistry.getInstrumentation()
-                .getUiAutomation().executeShellCommand("mkdir -p /data/local/tmp/evault-ui && screencap -p /data/local/tmp/evault-ui/" + name + ".png");
+                .getUiAutomation().executeShellCommand("mkdir -p /data/local/tmp/evault-ui && cp " + new File(folder, name + ".png").getAbsolutePath() + " /data/local/tmp/evault-ui/" + name + ".png");
             java.io.InputStream stream = new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)) {
             byte[] buffer = new byte[1024];
             while(stream.read(buffer) != -1) { /* Drain to wait for screencap completion. */ }
